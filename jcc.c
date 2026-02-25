@@ -30,7 +30,6 @@ struct {
 } typedef Token;
 
 char keywords[] = "auto break case char const continue default do double else enum extern float for goto if int long register return short signed sizeof static struct switch typedef union unsigned void volatile while";
-char symbols[] = " != *= /= %= ^= * / % ; . , ^ ? : ! ~";
 
 size_t cur_line = 0;
 size_t cur_col = 0;
@@ -185,6 +184,18 @@ Token next_token() {
 			*(tok_text++) = ch;
 		}
 		tok.type = Token_Type_COMMENT;
+	} else if (ch == '/' && peek_char() == '*') {
+		// multiline comment
+		ch = next_char();
+		*(tok_text++) = ch;
+		while (1) {
+			ch = next_char();
+			*(tok_text++) = ch;
+			if (ch == '*' && peek_char() == '/') break;
+		}
+		ch = next_char();
+		*(tok_text++) = ch;
+		tok.type = Token_Type_COMMENT;
 	} else {
 		// symbol logic
 		tok.type = Token_Type_SYMBOL;
@@ -252,6 +263,34 @@ Token next_token() {
 				ch = next_char();
 				*(tok_text++) = ch;
 			}
+		} else if (ch == '!') {
+			if (peek_char() == '=') {
+				ch = next_char();
+				*(tok_text++) = ch;
+			}
+		} else if (ch == '*') {
+			if (peek_char() == '=') {
+				ch = next_char();
+				*(tok_text++) = ch;
+			}
+		} else if (ch == '/') {
+			if (peek_char() == '=') {
+				ch = next_char();
+				*(tok_text++) = ch;
+			}
+		} else if (ch == '%') {
+			if (peek_char() == '=') {
+				ch = next_char();
+				*(tok_text++) = ch;
+			}
+		} else if (ch == '^') {
+			if (peek_char() == '=') {
+				ch = next_char();
+				*(tok_text++) = ch;
+			}
+		} else if (ch == '~' || ch == ',' || ch == '?' || ch == ':' || ch == '.' || ch == ';') {}
+		else {
+			tok.type = Token_Type_UNKNOWN;
 		}
 	}
 	*tok_text = '\0';
