@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #define BUFFER_SIZE 65536
 #define MAX_TOKEN 1024
@@ -596,6 +597,55 @@ void print_ast(AST_node* node, int depth) {
 	}
 }
 
+// elf generation
+FILE* out_file;
+
+void write_byte(unsigned char byte) {
+	putc(byte, out_file);
+}
+
+typedef struct {
+	uint8_t  e_ident[16];
+	uint16_t e_type;	
+	uint16_t e_machine;
+	uint32_t e_version;
+	uint64_t e_entry;
+	uint64_t e_phoff;
+	uint64_t e_shoff;
+	uint32_t e_flags;
+	uint16_t e_ehsize;
+	uint16_t e_phentsize;
+	uint16_t e_phnum;
+	uint16_t e_shentsize;
+	uint16_t e_shnum;
+	uint16_t e_shstrndx;
+} Elf64_Header;
+
+void write_elf_header() {
+	Elf64_Header header;
+	for (int i = 0; i < 16; i++)
+		header.e_ident[i] = 0x00;
+	header.e_ident[0] = 0x7f;
+	header.e_ident[1] = 'E';
+	header.e_ident[2] = 'L';
+	header.e_ident[3] = 'F';
+	header.e_ident[4] = 0x02;
+	header.e_ident[5] = 0x01;
+	header.e_ident[6] = 0x01;
+	
+	header.e_type    = 0x02; // executable file
+	header.e_machine = 0x3e; // x86-64
+	header.e_version = 0x01; // (current)
+	header.e_entry   = 0x00; // TODO
+	header.e_phoff   = 0x00; // TODO
+	header.e_shoff   = 0x00; // TODO
+	header.e_ehsize  = 0x40; // elf header size
+
+	int bytes = sizeof(Elf64_Header);
+	for (int i = 0; i < bytes; i++)
+		write_byte(((unsigned char*)&header)[i]);
+}
+
 int main() {
 	// fill buffers to allow for peeking
 	next_char();
@@ -607,4 +657,6 @@ int main() {
 	}*/
 	AST_node* program = parse_inclusive_or_expression();
 	print_ast(program, 0);
+	out_file = fopen("jcc.out", "w");
+	write_elf_header();
 }
