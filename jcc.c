@@ -599,9 +599,11 @@ void print_ast(AST_node* node, int depth) {
 
 // elf generation
 FILE* out_file;
+uint64_t current_byte = 0;
 
 void write_byte(unsigned char byte) {
 	putc(byte, out_file);
+	current_byte++;
 }
 
 typedef struct {
@@ -621,7 +623,20 @@ typedef struct {
 	uint16_t e_shstrndx;
 } Elf64_Header;
 
+typedef struct {
+	uint32_t p_type;
+	uint32_t p_flags;
+	uint64_t p_offset;
+	uint64_t p_vaddr;
+	uint64_t p_paddr;
+	uint64_t p_filesz;
+	uint64_t p_memsz;
+	uint64_t p_align;
+} Elf64_Program_Header;
+
 void write_elf_header() {
+	uint64_t start_address = 0x8000000;
+
 	Elf64_Header header;
 	for (int i = 0; i < 16; i++)
 		header.e_ident[i] = 0x00;
@@ -633,17 +648,45 @@ void write_elf_header() {
 	header.e_ident[5] = 0x01;
 	header.e_ident[6] = 0x01;
 	
-	header.e_type    = 0x02; // executable file
-	header.e_machine = 0x3e; // x86-64
-	header.e_version = 0x01; // (current)
-	header.e_entry   = 0x00; // TODO
-	header.e_phoff   = 0x00; // TODO
-	header.e_shoff   = 0x00; // TODO
-	header.e_ehsize  = 0x40; // elf header size
+	header.e_type      = 0x03; // dynamic executable file
+	header.e_machine   = 0x3e; // x86-64
+	header.e_version   = 0x01; // (current)
+	header.e_phoff     = 0x40; // program header starts after elf header
+	header.e_shoff     = 0x00; // TODO
+	header.e_flags     = 0x00; // no fucking idea
+	header.e_ehsize    = 0x40; // elf header size
+	header.e_phentsize = 0x38; // program header size
+	header.e_phnum     = 0x01; // # of program headers
+	header.e_shentsize = 0x01; // section header size
+	header.e_shnum     = 0x04; // # of section headers
+	header.e_shstrndx  = 0x03; // index of names section in table
 
-	int bytes = sizeof(Elf64_Header);
-	for (int i = 0; i < bytes; i++)
+	header.e_entry     = start_address + header.e_phoff + 0x40; // (align to 0x40 instead of 0x38)
+
+	int header_bytes = sizeof(Elf64_Header);
+	for (int i = 0; i < header_bytes; i++)
 		write_byte(((unsigned char*)&header)[i]);
+
+	// redundant but ensure proper padding for offsets
+	while (current_byte < header.e_phoff)
+		write_byte(0x00);
+
+	Elf64_Program_Header pheader;
+	
+	pheader.p_type     = 0x01; // load segment to memory
+	pheader.p_offset   = 0x00; // no offset
+	pheader.p_vaddr    = start_address;
+	pheader.p_paddr    = start_address;
+	pheader.p_filesz   = 0xA0; // no idea
+	pheader.p_memsz    = 0xA0; // no idea
+	pheader.p_flags    = 0x05; // r + x
+
+	int pheader_bytes = sizeof(Elf64_Program_Header);
+	for (int i = 0; i < pheader_bytes; i++)
+		write_byte(((unsigned char*)&pheader)[i]);
+
+	while (current_byte < header.e_entry - start_address)
+		write_byte(0x00);
 }
 
 int main() {
