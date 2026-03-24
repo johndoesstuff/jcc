@@ -1,5 +1,5 @@
 /*
- * Single File Self-Hosting C Compiler
+ * Single File Self-Hosting C Compiler targeting x86-64
  *
  * 100% Handcoded
  */
@@ -648,7 +648,7 @@ void write_elf_header() {
 	header.e_ident[5] = 0x01;
 	header.e_ident[6] = 0x01;
 	
-	header.e_type      = 0x03; // dynamic executable file
+	header.e_type      = 0x02; // dynamic executable file
 	header.e_machine   = 0x3e; // x86-64
 	header.e_version   = 0x01; // (current)
 	header.e_phoff     = 0x40; // program header starts after elf header
@@ -680,6 +680,7 @@ void write_elf_header() {
 	pheader.p_filesz   = 0xA0; // no idea
 	pheader.p_memsz    = 0xA0; // no idea
 	pheader.p_flags    = 0x05; // r + x
+	pheader.p_align    = 0x200000; // also no idea
 
 	int pheader_bytes = sizeof(Elf64_Program_Header);
 	for (int i = 0; i < pheader_bytes; i++)
@@ -689,7 +690,20 @@ void write_elf_header() {
 		write_byte(0x00);
 }
 
+void write_code() {
+	// mov rax, 60
+	write_byte(0x48); write_byte(0xc7); write_byte(0xc0);
+	write_byte(0x3c); write_byte(0x00); write_byte(0x00); write_byte(0x00);
+	// mov rdi, 69
+	write_byte(0x48); write_byte(0xc7); write_byte(0xc7);
+	write_byte(0x03); write_byte(0x00); write_byte(0x00); write_byte(0x00);
+	// syscall
+	write_byte(0x0f); write_byte(0x05);
+}
+
 int main() {
+	printf("== JCC ==\n");
+	printf("Usage: ./jcc < [input]\n");
 	// fill buffers to allow for peeking
 	next_char();
 	next_token();
@@ -700,6 +714,7 @@ int main() {
 	}*/
 	AST_node* program = parse_inclusive_or_expression();
 	print_ast(program, 0);
-	out_file = fopen("jcc.out", "w");
+	out_file = fopen("jcc.out", "wb");
 	write_elf_header();
+	write_code();
 }
