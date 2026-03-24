@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <sys/stat.h> // used for chmod
 
 #define BUFFER_SIZE 65536
 #define MAX_TOKEN 1024
@@ -690,13 +691,14 @@ void write_elf_header() {
 		write_byte(0x00);
 }
 
+// for now just exit with code 69 to make sure code is being run
 void write_code() {
 	// mov rax, 60
 	write_byte(0x48); write_byte(0xc7); write_byte(0xc0);
 	write_byte(0x3c); write_byte(0x00); write_byte(0x00); write_byte(0x00);
 	// mov rdi, 69
 	write_byte(0x48); write_byte(0xc7); write_byte(0xc7);
-	write_byte(0x03); write_byte(0x00); write_byte(0x00); write_byte(0x00);
+	write_byte(0x45); write_byte(0x00); write_byte(0x00); write_byte(0x00);
 	// syscall
 	write_byte(0x0f); write_byte(0x05);
 }
@@ -717,4 +719,6 @@ int main() {
 	out_file = fopen("jcc.out", "wb");
 	write_elf_header();
 	write_code();
+	fclose(out_file);
+	chmod("jcc.out", S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH); // +X
 }
