@@ -713,9 +713,7 @@ void write_elf_header() {
 // TODO: the following helpers should probably be generalized
 void emit_mov_rax_imm(int64_t val) {
 	// mov rax (32bit -- TODO: typechecking)
-	write_byte(0x48);
-	write_byte(0xc7);
-	write_byte(0xc0);
+	write_byte(0x48); write_byte(0xc7); write_byte(0xc0);
 	// little endian
 	write_byte(val & 0xff);
 	write_byte((val << 8) & 0xff);
@@ -795,8 +793,20 @@ void generate_code(AST_node* node) {
 		// add rax, rcx
 		write_byte(0x48); write_byte(0x01); write_byte(0xc8);
 	} else if (str_eql(op_text, "-") == 0) {
-		// sub rax, rcx
-		write_byte(0x48); write_byte(0x29); write_byte(0xc8);
+		// sub rcx, rax
+		// xchg rcx, rax
+		write_byte(0x48); write_byte(0x29); write_byte(0xc1);
+		write_byte(0x48); write_byte(0x91);
+	} else if (str_eql(op_text, "*") == 0) {
+		// imul rax, rcx
+		write_byte(0x48); write_byte(0x0f); write_byte(0xaf); write_byte(0xc1);
+	} else if (str_eql(op_text, "/") == 0) {
+		// xchg rcx, rax
+		// cqo
+		// idiv rcx
+		write_byte(0x48); write_byte(0x91);
+		write_byte(0x48); write_byte(0x99);
+		write_byte(0x48); write_byte(0xf7); write_byte(0xf9);
 	} else {
 		error_internal("Operator not implemented yet :P");
 	}
