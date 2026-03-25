@@ -12,6 +12,12 @@
 #define BUFFER_SIZE 65536
 #define MAX_TOKEN 1024
 
+/*
+ * Stage: TOKENIZER
+ *
+ * This stage breaks the input into tokens
+ */
+
 enum {
 	Token_Type_IDENTIFIER,
 	Token_Type_NUMBER,
@@ -87,6 +93,10 @@ int reached_eof = 0;
 
 Token token_buffer[2];
 
+// just to make self-hosting easier a lot of clib adjacent functions are
+// reimplemented so we dont have to define them later, obviously the *end* goal
+// is to link against clib but for bootstrapping purposes that goal is pretty
+// far off
 int is_whitespace(char ch) {
 	if (ch == ' ' || ch == '\n' || ch == '\t') return 1;
 	else return 0;
@@ -109,6 +119,7 @@ int is_alnum(char ch) {
 }
 
 char next_char() {
+	// TODO: rework for non stdin input
 	int int_c = getc(stdin);
 	if (int_c == EOF) reached_eof = 1;
 	char_buffer[0] = char_buffer[1];
@@ -156,6 +167,7 @@ int is_keyword(char* str) {
 	return 0;
 }
 
+// bootleg strcmp
 int str_eql(const char* s1, const char* s2) {
 	const char* p1 = s1;
 	const char* p2 = s2;
@@ -170,6 +182,7 @@ int str_eql(const char* s1, const char* s2) {
 	return 1;
 }
 
+// main tokenizer function
 Token next_token() {
 	Token tok;
 	do {
@@ -373,6 +386,12 @@ Token current_token() {
 	return token_buffer[0];
 }
 
+/*
+ * Stage: PARSER
+ *
+ * This stage takes all the tokens and breaks them down into an AST
+ */
+
 enum {
 	AST_Type_TERMINAL,
 	AST_Type_MULTIPLICATIVE_EXPRESSION,
@@ -434,6 +453,7 @@ struct AST_node {
 	};
 } typedef AST_node;
 
+// some general purpose helpers
 void error_unexpected_token(Token tok, Token_Type t) {
 	fprintf(stderr, "Parse Error: Unexpected token %s at %ld:%ld\nExpected %s but found %s (%s)\n",
 			tok.text, tok.line_no, tok.col_no, Token_Type_to_str(t), tok.text, Token_Type_to_str(tok.type));
@@ -465,6 +485,7 @@ AST_node* expect(Token_Type t) {
 	return NULL;
 }
 
+// recursive descent parsing rules:
 AST_node* parse_multiplicative_expression() {
 	AST_node* left = expect(Token_Type_NUMBER);
 	if (current_token().type == Token_Type_MULTIPLICATIVE) {
@@ -569,6 +590,7 @@ AST_node* parse_inclusive_or_expression() {
 	return left;
 }
 
+// for debugging purposes
 void print_ast(AST_node* node, int depth) {
 	for (int i = 0; i < depth; i++)
 		printf("    ");
@@ -617,11 +639,22 @@ void print_ast(AST_node* node, int depth) {
 	}
 }
 
-// elf generation
+/*
+ * Stage: CODEGEN
+ *
+ * We now take the information from the AST and use it to generate runnable x86_64
+ */
+
+/*
+ * Before we can really do anything we need to generate ELF boilerplate so the
+ * OS knows our file is intended to be an executable
+ */
+
 FILE* out_file;
 uint64_t current_byte = 0;
 
-void write_byte(unsigned char byte) {
+// append a byte to output file
+void emit_byte(unsigned char byte) {
 	putc(byte, out_file);
 	current_byte++;
 }
@@ -685,11 +718,11 @@ void write_elf_header() {
 
 	int header_bytes = sizeof(Elf64_Header);
 	for (int i = 0; i < header_bytes; i++)
-		write_byte(((unsigned char*)&header)[i]);
+		emit_byte(((unsigned char*)&header)[i]);
 
 	// redundant but ensure proper padding for offsets
 	while (current_byte < header.e_phoff)
-		write_byte(0x00);
+		emit_byte(0x00);
 
 	Elf64_Program_Header pheader;
 	
@@ -704,29 +737,76 @@ void write_elf_header() {
 
 	int pheader_bytes = sizeof(Elf64_Program_Header);
 	for (int i = 0; i < pheader_bytes; i++)
-		write_byte(((unsigned char*)&pheader)[i]);
+		emit_byte(((unsigned char*)&pheader)[i]);
 
 	while (current_byte < header.e_entry - start_address)
-		write_byte(0x00);
+		emit_byte(0x00);
+}
+
+/*
+ * Awesome, now we can worry about the actual x86_64 codegen
+ */
+
+// for now we will only concern ourselves with 64bit registers
+enum {
+	Register_RAX, // = 0
+	Register_RCX,
+	Register_RDX,
+	Register_RBX,
+	Register_RSP,
+	Register_RBP,
+	Register_RSI,
+	Register_RDI,
+
+	// 64bit registers
+	Register_R8,
+	Register_R9,
+	Register_R10,
+	Register_R11,
+	Register_R12,
+	Register_R13,
+	Register_R14,
+	Register_R15,
+} typedef Codegen_Register;
+
+int reg_is_64bit(Codegen_Register reg) {
+	return reg < Register_R8 ? 0 : 1;
+}
+
+// get the canonical component of registers, for example r8 -> rax
+int reg_canon(Codegen_Register reg) {
+	return reg % Register_R8;
 }
 
 // TODO: the following helpers should probably be generalized
-void emit_mov_rax_imm(int64_t val) {
-	// mov rax (32bit -- TODO: typechecking)
-	write_byte(0x48); write_byte(0xc7); write_byte(0xc0);
+void emit_mov_reg_imm(Codegen_Register reg, int64_t val) {
+	// mov [reg] (32bit -- TODO: typechecking)
+	if (reg_is_64bit(reg)) {
+		emit_byte(0x49);
+	} else {
+		emit_byte(0x48);
+	}
+	emit_byte(0xc7);
+	emit_byte(0xc0 + reg_canon(reg));
 	// little endian
-	write_byte(val & 0xff);
-	write_byte((val << 8) & 0xff);
-	write_byte((val << 16) & 0xff);
-	write_byte((val << 24) & 0xff);
+	emit_byte(val & 0xff);
+	emit_byte((val << 8) & 0xff);
+	emit_byte((val << 16) & 0xff);
+	emit_byte((val << 24) & 0xff);
 }
 
-void emit_push_rax() {
-	write_byte(0x50);
+void emit_push_reg(Codegen_Register reg) {
+	if (reg_is_64bit(reg)) {
+		emit_byte(0x41);
+	}
+	emit_byte(0x50 + reg_canon(reg));
 }
 
-void emit_pop_rcx() {
-	write_byte(0x59);
+void emit_pop_reg(Codegen_Register reg) {
+	if (reg_is_64bit(reg)) {
+		emit_byte(0x41);
+	}
+	emit_byte(0x58 + reg_canon(reg));
 }
 
 void generate_code(AST_node* node) {
@@ -734,7 +814,7 @@ void generate_code(AST_node* node) {
 	if (node->type == AST_Type_TERMINAL) {
 		// TODO: typechecking
 		int64_t val = atoi(node->terminal.value.text);
-		emit_mov_rax_imm(val);
+		emit_mov_reg_imm(Register_RAX, val);
 		return;
 	}
 
@@ -783,44 +863,51 @@ void generate_code(AST_node* node) {
 	}
 
 	generate_code(left);
-	emit_push_rax(); // TODO: very temporary solution
+	emit_push_reg(Register_RAX); // TODO: very temporary solution
 	generate_code(right);
-	emit_pop_rcx();
+	emit_pop_reg(Register_RCX);
 	
 	char* op_text = op->terminal.value.text;
 	
 	if (str_eql(op_text, "+") == 0) {
 		// add rax, rcx
-		write_byte(0x48); write_byte(0x01); write_byte(0xc8);
+		emit_byte(0x48); emit_byte(0x01); emit_byte(0xc8);
 	} else if (str_eql(op_text, "-") == 0) {
 		// sub rcx, rax
 		// xchg rcx, rax
-		write_byte(0x48); write_byte(0x29); write_byte(0xc1);
-		write_byte(0x48); write_byte(0x91);
+		emit_byte(0x48); emit_byte(0x29); emit_byte(0xc1);
+		emit_byte(0x48); emit_byte(0x91);
 	} else if (str_eql(op_text, "*") == 0) {
 		// imul rax, rcx
-		write_byte(0x48); write_byte(0x0f); write_byte(0xaf); write_byte(0xc1);
+		emit_byte(0x48); emit_byte(0x0f); emit_byte(0xaf); emit_byte(0xc1);
 	} else if (str_eql(op_text, "/") == 0) {
 		// xchg rcx, rax
 		// cqo
 		// idiv rcx
-		write_byte(0x48); write_byte(0x91);
-		write_byte(0x48); write_byte(0x99);
-		write_byte(0x48); write_byte(0xf7); write_byte(0xf9);
+		emit_byte(0x48); emit_byte(0x91);
+		emit_byte(0x48); emit_byte(0x99);
+		emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
 	} else {
 		error_internal("Operator not implemented yet :P");
 	}
 }
 
-void write_exit() {
+void emit_exit() {
 	// mov rdi, rax (mov result to exit val)
-	write_byte(0x48); write_byte(0x87); write_byte(0xc7);
+	emit_byte(0x48); emit_byte(0x87); emit_byte(0xc7);
 	// mov rax, 60
-	write_byte(0x48); write_byte(0xc7); write_byte(0xc0);
-	write_byte(0x3c); write_byte(0x00); write_byte(0x00); write_byte(0x00);
+	emit_byte(0x48); emit_byte(0xc7); emit_byte(0xc0);
+	emit_byte(0x3c); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
 	// syscall
-	write_byte(0x0f); write_byte(0x05);
+	emit_byte(0x0f); emit_byte(0x05);
 }
+
+/*
+ * Stage: MAIN DRIVER
+ *
+ * Now we can take all of these components and put them together in a way that
+ * makes sense!
+ */
 
 int main() {
 	printf("== JCC ==\n");
@@ -840,7 +927,7 @@ int main() {
 
 	// codegen
 	generate_code(program);
-	write_exit();
+	emit_exit();
 
 	// cleanup and allow execution
 	fclose(out_file);
