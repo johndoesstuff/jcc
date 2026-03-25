@@ -156,6 +156,20 @@ int is_keyword(char* str) {
 	return 0;
 }
 
+int str_eql(const char* s1, const char* s2) {
+	const char* p1 = s1;
+	const char* p2 = s2;
+	int eql = 0;
+	while (eql == 0 && *p1 != '\0' && *p2 != '\0') {
+		if (*p1 == *p2) {
+			p1++;
+			p2++;
+		} else eql = 1;
+	}
+	if (*p1 == *p2) return 0;
+	return 1;
+}
+
 Token next_token() {
 	Token tok;
 	do {
@@ -426,6 +440,11 @@ void error_unexpected_token(Token tok, Token_Type t) {
 	exit(1);
 }
 
+void error_internal(const char* msg) {
+	fprintf(stderr, "Fatal internal error: %s\n", msg);
+	exit(1);
+}
+
 // return an AST_node terminal of current token if it is type t
 AST_node* accept(Token_Type t) {
 	if (t == current_token().type) {
@@ -691,14 +710,104 @@ void write_elf_header() {
 		write_byte(0x00);
 }
 
-// for now just exit with code 69 to make sure code is being run
-void write_code() {
+// TODO: the following helpers should probably be generalized
+void emit_mov_rax_imm(int64_t val) {
+	// mov rax (32bit -- TODO: typechecking)
+	write_byte(0x48);
+	write_byte(0xc7);
+	write_byte(0xc0);
+	// little endian
+	write_byte(val & 0xff);
+	write_byte((val << 8) & 0xff);
+	write_byte((val << 16) & 0xff);
+	write_byte((val << 24) & 0xff);
+}
+
+void emit_push_rax() {
+	write_byte(0x50);
+}
+
+void emit_pop_rcx() {
+	write_byte(0x59);
+}
+
+void generate_code(AST_node* node) {
+	// simple approach: move terminals into rax
+	if (node->type == AST_Type_TERMINAL) {
+		// TODO: typechecking
+		int64_t val = atoi(node->terminal.value.text);
+		emit_mov_rax_imm(val);
+		return;
+	}
+
+	// generate code for left into rax, push, generate code for right into rax,
+	// pop into rcx and operate
+	//
+	// only works for binary ops! 100% need to refactor this later!
+	AST_node* left;
+	AST_node* op;
+	AST_node* right;
+
+	if (node->type == AST_Type_MULTIPLICATIVE_EXPRESSION) {
+		left  = node->multiplicative_expression.left;
+		op    = node->multiplicative_expression.op;
+		right = node->multiplicative_expression.right;
+	} else if (node->type == AST_Type_ADDITIVE_EXPRESSION) {
+		left  = node->additive_expression.left;
+		op    = node->additive_expression.op;
+		right = node->additive_expression.right;
+	} else if (node->type == AST_Type_SHIFT_EXPRESSION) {
+		left  = node->shift_expression.left;
+		op    = node->shift_expression.op;
+		right = node->shift_expression.right;
+	} else if (node->type == AST_Type_RELATIONAL_EXPRESSION) {
+		left  = node->relational_expression.left;
+		op    = node->relational_expression.op;
+		right = node->relational_expression.right;
+	} else if (node->type == AST_Type_EQUALITY_EXPRESSION) {
+		left  = node->equality_expression.left;
+		op    = node->equality_expression.op;
+		right = node->equality_expression.right;
+	} else if (node->type == AST_Type_AND_EXPRESSION) {
+		left  = node->and_expression.left;
+		op    = node->and_expression.op;
+		right = node->and_expression.right;
+	} else if (node->type == AST_Type_EXCLUSIVE_OR_EXPRESSION) {
+		left  = node->exclusive_or_expression.left;
+		op    = node->exclusive_or_expression.op;
+		right = node->exclusive_or_expression.right;
+	} else if (node->type == AST_Type_INCLUSIVE_OR_EXPRESSION) {
+		left  = node->inclusive_or_expression.left;
+		op    = node->inclusive_or_expression.op;
+		right = node->inclusive_or_expression.right;
+	} else {
+		error_internal("Invalid AST binary state reached");
+	}
+
+	generate_code(left);
+	emit_push_rax(); // TODO: very temporary solution
+	generate_code(right);
+	emit_pop_rcx();
+	
+	char* op_text = op->terminal.value.text;
+	
+	if (str_eql(op_text, "+") == 0) {
+		// add rax, rcx
+		write_byte(0x48); write_byte(0x01); write_byte(0xc8);
+	} else if (str_eql(op_text, "-") == 0) {
+		// sub rax, rcx
+		write_byte(0x48); write_byte(0x29); write_byte(0xc8);
+	} else {
+		error_internal("Operator not implemented yet :P");
+	}
+}
+
+void write_exit() {
+	// mov rdi, rax (mov result to exit val)
+	write_byte(0x48); write_byte(0x87); write_byte(0xc7);
 	// mov rax, 60
 	write_byte(0x48); write_byte(0xc7); write_byte(0xc0);
 	write_byte(0x3c); write_byte(0x00); write_byte(0x00); write_byte(0x00);
-	// mov rdi, 69
-	write_byte(0x48); write_byte(0xc7); write_byte(0xc7);
-	write_byte(0x45); write_byte(0x00); write_byte(0x00); write_byte(0x00);
 	// syscall
 	write_byte(0x0f); write_byte(0x05);
 }
@@ -710,15 +819,20 @@ int main() {
 	next_char();
 	next_token();
 	next_token();
-	/*while (!reached_eof) {
-		Token tok = next_token();
-		printf("Found token %s of type %d\n", tok.text, tok.type);
-	}*/
+
+	// parse program
 	AST_node* program = parse_inclusive_or_expression();
 	print_ast(program, 0);
+
+	// prepare output
 	out_file = fopen("jcc.out", "wb");
 	write_elf_header();
-	write_code();
+
+	// codegen
+	generate_code(program);
+	write_exit();
+
+	// cleanup and allow execution
 	fclose(out_file);
 	chmod("jcc.out", S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH); // +X
 }
