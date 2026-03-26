@@ -752,9 +752,9 @@ enum {
 	Register_RAX, // = 0
 	Register_RCX,
 	Register_RDX,
-	Register_RBX,
-	Register_RSP,
-	Register_RBP,
+	Register_RBX, // preserved
+	Register_RSP, // preserved
+	Register_RBP, // preserved
 	Register_RSI,
 	Register_RDI,
 
@@ -763,12 +763,13 @@ enum {
 	Register_R9,
 	Register_R10,
 	Register_R11,
-	Register_R12,
-	Register_R13,
-	Register_R14,
-	Register_R15,
+	Register_R12, // preserved
+	Register_R13, // preserved
+	Register_R14, // preserved
+	Register_R15, // preserved
 } typedef Codegen_Register;
 
+// helperes for dealing with register enums:
 int reg_is_64bit(Codegen_Register reg) {
 	return reg < Register_R8 ? 0 : 1;
 }
@@ -778,7 +779,10 @@ int reg_canon(Codegen_Register reg) {
 	return reg % Register_R8;
 }
 
-// TODO: the following helpers should probably be generalized
+/*
+ * x86_64 Assembly Helpers:
+ */
+
 void emit_mov_reg_imm(Codegen_Register reg, int64_t val) {
 	// mov [reg] (32bit -- TODO: typechecking)
 	if (reg_is_64bit(reg)) {
@@ -807,6 +811,54 @@ void emit_pop_reg(Codegen_Register reg) {
 		emit_byte(0x41);
 	}
 	emit_byte(0x58 + reg_canon(reg));
+}
+
+void emit_syscall() {
+	emit_byte(0x0f); emit_byte(0x05);
+}
+
+void emit_add_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
+	if (reg_is_64bit(reg2)) {
+		emit_byte(0x4c + reg_is_64bit(reg1));
+	} else {
+		emit_byte(0x48 + reg_is_64bit(reg1));
+	}
+	emit_byte(0x01);
+	emit_byte(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
+}
+
+void emit_sub_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
+	if (reg_is_64bit(reg2)) {
+		emit_byte(0x4c + reg_is_64bit(reg1));
+	} else {
+		emit_byte(0x48 + reg_is_64bit(reg1));
+	}
+	emit_byte(0x29);
+	emit_byte(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
+}
+
+void emit_xchg_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
+	if (reg1 == reg2) return;
+	// order doesnt matter for xchg
+	if (reg1 > reg2) {
+		Codegen_Register tmp = reg1;
+		reg1 = reg2;
+		reg2 = tmp;
+	}
+	// xchg rax has special encoding
+	if (reg1 == Register_RAX) {
+		emit_byte(0x48 + reg_is_64bit(reg1));
+		emit_byte(0x90 + reg_canon(reg2));
+	} else {
+		emit_byte(0x48 + reg_is_64bit(reg1) + (reg_is_64bit(reg2) >> 3));
+		emit_byte(0x87);
+		emit_byte(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
+	}
+}
+
+void emit_cqo() {
+	emit_byte(0x48);
+	emit_byte(0x99);
 }
 
 void generate_code(AST_node* node) {
@@ -870,22 +922,18 @@ void generate_code(AST_node* node) {
 	char* op_text = op->terminal.value.text;
 	
 	if (str_eql(op_text, "+") == 0) {
-		// add rax, rcx
-		emit_byte(0x48); emit_byte(0x01); emit_byte(0xc8);
+		emit_add_reg_reg(Register_RAX, Register_RCX);
 	} else if (str_eql(op_text, "-") == 0) {
-		// sub rcx, rax
-		// xchg rcx, rax
-		emit_byte(0x48); emit_byte(0x29); emit_byte(0xc1);
-		emit_byte(0x48); emit_byte(0x91);
+		emit_sub_reg_reg(Register_RCX, Register_RAX);
+		emit_xchg_reg_reg(Register_RCX, Register_RAX);
 	} else if (str_eql(op_text, "*") == 0) {
 		// imul rax, rcx
 		emit_byte(0x48); emit_byte(0x0f); emit_byte(0xaf); emit_byte(0xc1);
 	} else if (str_eql(op_text, "/") == 0) {
 		// xchg rcx, rax
-		// cqo
-		// idiv rcx
 		emit_byte(0x48); emit_byte(0x91);
-		emit_byte(0x48); emit_byte(0x99);
+		emit_cqo();
+		// idiv rcx
 		emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
 	} else {
 		error_internal("Operator not implemented yet :P");
@@ -896,10 +944,9 @@ void emit_exit() {
 	// mov rdi, rax (mov result to exit val)
 	emit_byte(0x48); emit_byte(0x87); emit_byte(0xc7);
 	// mov rax, 60
-	emit_byte(0x48); emit_byte(0xc7); emit_byte(0xc0);
-	emit_byte(0x3c); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+	emit_mov_reg_imm(Register_RAX, 60);
 	// syscall
-	emit_byte(0x0f); emit_byte(0x05);
+	emit_syscall();
 }
 
 /*
