@@ -431,52 +431,7 @@ struct AST_node {
 			struct AST_node* left;
 			struct AST_node* op;
 			struct AST_node* right;
-		} multiplicative_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} additive_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} shift_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} relational_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} equality_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} and_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} exclusive_or_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} inclusive_or_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} logical_and_expression;
-		struct {
-			struct AST_node* left;
-			struct AST_node* op;
-			struct AST_node* right;
-		} logical_or_expression;
+		} binary_expression;
 		struct {
 			struct AST_node* condition;
 			struct AST_node* left;
@@ -498,6 +453,37 @@ void error_unexpected_token(Token tok, Token_Type t) {
 void error_internal(const char* msg) {
 	fprintf(stderr, "Fatal internal error: %s\n", msg);
 	exit(1);
+}
+
+int AST_is_binary(AST_Type type) {
+	if (type == AST_Type_MULTIPLICATIVE_EXPRESSION) return 1;
+	else if (type == AST_Type_ADDITIVE_EXPRESSION) return 1;
+	else if (type == AST_Type_SHIFT_EXPRESSION) return 1;
+	else if (type == AST_Type_RELATIONAL_EXPRESSION) return 1;
+	else if (type == AST_Type_EQUALITY_EXPRESSION) return 1;
+	else if (type == AST_Type_AND_EXPRESSION) return 1;
+	else if (type == AST_Type_EXCLUSIVE_OR_EXPRESSION) return 1;
+	else if (type == AST_Type_INCLUSIVE_OR_EXPRESSION) return 1;
+	else if (type == AST_Type_LOGICAL_AND_EXPRESSION) return 1;
+	else if (type == AST_Type_LOGICAL_OR_EXPRESSION) return 1;
+	return 0;
+}
+
+char* AST_Type_to_str(AST_Type t) {
+	if (t == AST_Type_TERMINAL) return "TERMINAL";
+	else if (t == AST_Type_MULTIPLICATIVE_EXPRESSION) return "MULTIPLICATIVE_EXPRESSION";
+	else if (t == AST_Type_ADDITIVE_EXPRESSION) return "ADDITIVE_EXPRESSION";
+	else if (t == AST_Type_SHIFT_EXPRESSION) return "SHIFT_EXPRESSION";
+	else if (t == AST_Type_RELATIONAL_EXPRESSION) return "RELATIONAL_EXPRESSION";
+	else if (t == AST_Type_EQUALITY_EXPRESSION) return "EQUALITY_EXPRESSION";
+	else if (t == AST_Type_AND_EXPRESSION) return "AND_EXPRESSION";
+	else if (t == AST_Type_EXCLUSIVE_OR_EXPRESSION) return "EXCLUSIVE_OR_EXPRESSION";
+	else if (t == AST_Type_INCLUSIVE_OR_EXPRESSION) return "INCLUSIVE_OR_EXPRESSION";
+	else if (t == AST_Type_LOGICAL_AND_EXPRESSION) return "LOGICAL_AND_EXPRESSION";
+	else if (t == AST_Type_LOGICAL_OR_EXPRESSION) return "LOGICAL_OR_EXPRESSION";
+	else if (t == AST_Type_CONDITIONAL_EXPRESSION) return "CONDITIONAL_EXPRESSION";
+
+	else return "UNKNOWN";
 }
 
 // return an AST_node terminal of current token if it is type t
@@ -540,9 +526,9 @@ AST_node* parse_multiplicative_expression() {
 	if (current_token().type == Token_Type_MULTIPLICATIVE) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_MULTIPLICATIVE_EXPRESSION;
-		node->multiplicative_expression.left = left;
-		node->multiplicative_expression.op = expect(Token_Type_MULTIPLICATIVE);
-		node->multiplicative_expression.right = parse_multiplicative_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_MULTIPLICATIVE);
+		node->binary_expression.right = parse_multiplicative_expression();
 		return node;
 	}
 	return left;
@@ -553,9 +539,9 @@ AST_node* parse_additive_expression() {
 	if (current_token().type == Token_Type_ADDITIVE) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_ADDITIVE_EXPRESSION;
-		node->additive_expression.left = left;
-		node->additive_expression.op = expect(Token_Type_ADDITIVE);
-		node->additive_expression.right = parse_additive_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_ADDITIVE);
+		node->binary_expression.right = parse_additive_expression();
 		return node;
 	}
 	return left;
@@ -566,9 +552,9 @@ AST_node* parse_shift_expression() {
 	if (current_token().type == Token_Type_SHIFT) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_SHIFT_EXPRESSION;
-		node->shift_expression.left = left;
-		node->shift_expression.op = expect(Token_Type_SHIFT);
-		node->shift_expression.right = parse_shift_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_SHIFT);
+		node->binary_expression.right = parse_shift_expression();
 		return node;
 	}
 	return left;
@@ -579,9 +565,9 @@ AST_node* parse_relational_expression() {
 	if (current_token().type == Token_Type_RELATIONAL) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_RELATIONAL_EXPRESSION;
-		node->relational_expression.left = left;
-		node->relational_expression.op = expect(Token_Type_RELATIONAL);
-		node->relational_expression.right = parse_relational_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_RELATIONAL);
+		node->binary_expression.right = parse_relational_expression();
 		return node;
 	}
 	return left;
@@ -592,9 +578,9 @@ AST_node* parse_equality_expression() {
 	if (current_token().type == Token_Type_EQUALITY) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_EQUALITY_EXPRESSION;
-		node->equality_expression.left = left;
-		node->equality_expression.op = expect(Token_Type_EQUALITY);
-		node->equality_expression.right = parse_equality_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_EQUALITY);
+		node->binary_expression.right = parse_equality_expression();
 		return node;
 	}
 	return left;
@@ -605,9 +591,9 @@ AST_node* parse_and_expression() {
 	if (current_token().type == Token_Type_AND) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_AND_EXPRESSION;
-		node->and_expression.left = left;
-		node->and_expression.op = expect(Token_Type_AND);
-		node->and_expression.right = parse_and_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_AND);
+		node->binary_expression.right = parse_and_expression();
 		return node;
 	}
 	return left;
@@ -618,9 +604,9 @@ AST_node* parse_exclusive_or_expression() {
 	if (current_token().type == Token_Type_EXCLUSIVE_OR) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_EXCLUSIVE_OR_EXPRESSION;
-		node->exclusive_or_expression.left = left;
-		node->exclusive_or_expression.op = expect(Token_Type_EXCLUSIVE_OR);
-		node->exclusive_or_expression.right = parse_exclusive_or_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_EXCLUSIVE_OR);
+		node->binary_expression.right = parse_exclusive_or_expression();
 		return node;
 	}
 	return left;
@@ -631,9 +617,9 @@ AST_node* parse_inclusive_or_expression() {
 	if (current_token().type == Token_Type_INCLUSIVE_OR) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_INCLUSIVE_OR_EXPRESSION;
-		node->inclusive_or_expression.left = left;
-		node->inclusive_or_expression.op = expect(Token_Type_INCLUSIVE_OR);
-		node->inclusive_or_expression.right = parse_inclusive_or_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_INCLUSIVE_OR);
+		node->binary_expression.right = parse_inclusive_or_expression();
 		return node;
 	}
 	return left;
@@ -644,9 +630,9 @@ AST_node* parse_logical_and_expression() {
 	if (current_token().type == Token_Type_LOGICAL_AND) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_LOGICAL_AND_EXPRESSION;
-		node->logical_and_expression.left = left;
-		node->logical_and_expression.op = expect(Token_Type_LOGICAL_AND);
-		node->logical_and_expression.right = parse_logical_and_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_LOGICAL_AND);
+		node->binary_expression.right = parse_logical_and_expression();
 		return node;
 	}
 	return left;
@@ -657,9 +643,9 @@ AST_node* parse_logical_or_expression() {
 	if (current_token().type == Token_Type_LOGICAL_OR) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_LOGICAL_OR_EXPRESSION;
-		node->logical_or_expression.left = left;
-		node->logical_or_expression.op = expect(Token_Type_LOGICAL_OR);
-		node->logical_or_expression.right = parse_logical_and_expression();
+		node->binary_expression.left = left;
+		node->binary_expression.op = expect(Token_Type_LOGICAL_OR);
+		node->binary_expression.right = parse_logical_and_expression();
 		return node;
 	}
 	return left;
@@ -684,56 +670,11 @@ void print_ast(AST_node* node, int depth) {
 		printf("    ");
 	if (node->type == AST_Type_TERMINAL) {
 		printf("Token %s of type %s\n", node->terminal.value.text, Token_Type_to_str(node->terminal.value.type));
-	} else if (node->type == AST_Type_MULTIPLICATIVE_EXPRESSION) {
-		printf("Node: MULTIPLICATIVE_EXPRESSION\n");
-		print_ast(node->multiplicative_expression.left, depth + 1);
-		print_ast(node->multiplicative_expression.op, depth + 1);
-		print_ast(node->multiplicative_expression.right, depth + 1);
-	} else if (node->type == AST_Type_ADDITIVE_EXPRESSION) {
-		printf("Node: ADDITIVE_EXPRESSION\n");
-		print_ast(node->additive_expression.left, depth + 1);
-		print_ast(node->additive_expression.op, depth + 1);
-		print_ast(node->additive_expression.right, depth + 1);
-	} else if (node->type == AST_Type_SHIFT_EXPRESSION) {
-		printf("Node: SHIFT_EXPRESSION\n");
-		print_ast(node->shift_expression.left, depth + 1);
-		print_ast(node->shift_expression.op, depth + 1);
-		print_ast(node->shift_expression.right, depth + 1);
-	} else if (node->type == AST_Type_RELATIONAL_EXPRESSION) {
-		printf("Node: RELATIONAL_EXPRESSION\n");
-		print_ast(node->relational_expression.left, depth + 1);
-		print_ast(node->relational_expression.op, depth + 1);
-		print_ast(node->relational_expression.right, depth + 1);
-	} else if (node->type == AST_Type_EQUALITY_EXPRESSION) {
-		printf("Node: EQUALITY_EXPRESSION\n");
-		print_ast(node->equality_expression.left, depth + 1);
-		print_ast(node->equality_expression.op, depth + 1);
-		print_ast(node->equality_expression.right, depth + 1);
-	} else if (node->type == AST_Type_AND_EXPRESSION) {
-		printf("Node: AND_EXPRESSION\n");
-		print_ast(node->and_expression.left, depth + 1);
-		print_ast(node->and_expression.op, depth + 1);
-		print_ast(node->and_expression.right, depth + 1);
-	} else if (node->type == AST_Type_EXCLUSIVE_OR_EXPRESSION) {
-		printf("Node: EXCLUSIVE_OR_EXPRESSION\n");
-		print_ast(node->exclusive_or_expression.left, depth + 1);
-		print_ast(node->exclusive_or_expression.op, depth + 1);
-		print_ast(node->exclusive_or_expression.right, depth + 1);
-	} else if (node->type == AST_Type_INCLUSIVE_OR_EXPRESSION) {
-		printf("Node: INCLUSIVE_OR_EXPRESSION\n");
-		print_ast(node->inclusive_or_expression.left, depth + 1);
-		print_ast(node->inclusive_or_expression.op, depth + 1);
-		print_ast(node->inclusive_or_expression.right, depth + 1);
-	} else if (node->type == AST_Type_LOGICAL_AND_EXPRESSION) {
-		printf("Node: LOGICAL_AND_EXPRESSION\n");
-		print_ast(node->logical_and_expression.left, depth + 1);
-		print_ast(node->logical_and_expression.op, depth + 1);
-		print_ast(node->logical_and_expression.right, depth + 1);
-	} else if (node->type == AST_Type_LOGICAL_OR_EXPRESSION) {
-		printf("Node: LOGICAL_OR_EXPRESSION\n");
-		print_ast(node->logical_or_expression.left, depth + 1);
-		print_ast(node->logical_or_expression.op, depth + 1);
-		print_ast(node->logical_or_expression.right, depth + 1);
+	} else if (AST_is_binary(node->type)) {
+		printf("Node: %s\n", AST_Type_to_str(node->type));
+		print_ast(node->binary_expression.left, depth + 1);
+		print_ast(node->binary_expression.op, depth + 1);
+		print_ast(node->binary_expression.right, depth + 1);
 	} else if (node->type == AST_Type_CONDITIONAL_EXPRESSION) {
 		printf("Node: CONDITIONAL_EXPRESSION\n");
 		print_ast(node->conditional_expression.condition, depth + 1);
@@ -971,81 +912,43 @@ void generate_code(AST_node* node) {
 		int64_t val = atoi(node->terminal.value.text);
 		emit_mov_reg_imm(Register_RAX, val);
 		return;
-	}
+	} else if (AST_is_binary(node->type)) {
+		// generate code for left into rax, push, generate code for right into rax,
+		// pop into rcx and operate
+		AST_node* left  = node->binary_expression.left;
+		AST_node* op    = node->binary_expression.op;
+		AST_node* right = node->binary_expression.right;
 
-	// generate code for left into rax, push, generate code for right into rax,
-	// pop into rcx and operate
-	//
-	// only works for binary ops! 100% need to refactor this later!
-	AST_node* left;
-	AST_node* op;
-	AST_node* right;
-
-	if (node->type == AST_Type_MULTIPLICATIVE_EXPRESSION) {
-		left  = node->multiplicative_expression.left;
-		op    = node->multiplicative_expression.op;
-		right = node->multiplicative_expression.right;
-	} else if (node->type == AST_Type_ADDITIVE_EXPRESSION) {
-		left  = node->additive_expression.left;
-		op    = node->additive_expression.op;
-		right = node->additive_expression.right;
-	} else if (node->type == AST_Type_SHIFT_EXPRESSION) {
-		left  = node->shift_expression.left;
-		op    = node->shift_expression.op;
-		right = node->shift_expression.right;
-	} else if (node->type == AST_Type_RELATIONAL_EXPRESSION) {
-		left  = node->relational_expression.left;
-		op    = node->relational_expression.op;
-		right = node->relational_expression.right;
-	} else if (node->type == AST_Type_EQUALITY_EXPRESSION) {
-		left  = node->equality_expression.left;
-		op    = node->equality_expression.op;
-		right = node->equality_expression.right;
-	} else if (node->type == AST_Type_AND_EXPRESSION) {
-		left  = node->and_expression.left;
-		op    = node->and_expression.op;
-		right = node->and_expression.right;
-	} else if (node->type == AST_Type_EXCLUSIVE_OR_EXPRESSION) {
-		left  = node->exclusive_or_expression.left;
-		op    = node->exclusive_or_expression.op;
-		right = node->exclusive_or_expression.right;
-	} else if (node->type == AST_Type_INCLUSIVE_OR_EXPRESSION) {
-		left  = node->inclusive_or_expression.left;
-		op    = node->inclusive_or_expression.op;
-		right = node->inclusive_or_expression.right;
-	} else {
-		error_internal("Invalid AST binary state reached");
-	}
-
-	generate_code(left);
-	emit_push_reg(Register_RAX); // TODO: very temporary solution
-	generate_code(right);
-	emit_pop_reg(Register_RCX);
-	
-	char* op_text = op->terminal.value.text;
-	
-	if (str_eql(op_text, "+") == 0) {
-		emit_add_reg_reg(Register_RAX, Register_RCX);
-	} else if (str_eql(op_text, "-") == 0) {
-		emit_sub_reg_reg(Register_RCX, Register_RAX);
-		emit_xchg_reg_reg(Register_RCX, Register_RAX);
-	} else if (str_eql(op_text, "*") == 0) {
-		// imul rax, rcx
-		emit_byte(0x48); emit_byte(0x0f); emit_byte(0xaf); emit_byte(0xc1);
-	} else if (str_eql(op_text, "/") == 0) {
-		emit_xchg_reg_reg(Register_RCX, Register_RAX);
-		emit_cqo();
-		// idiv rcx
-		emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
-	} else if (str_eql(op_text, "%") == 0) {
-		emit_xchg_reg_reg(Register_RCX, Register_RAX);
-		emit_cqo();
-		// idiv rcx
-		emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
-		// mod is stored in rdx, move to rax
-		emit_xchg_reg_reg(Register_RAX, Register_RDX);
-	} else {
-		error_internal("Operator not implemented yet :P");
+		generate_code(left);
+		emit_push_reg(Register_RAX); // TODO: very temporary solution
+		generate_code(right);
+		emit_pop_reg(Register_RCX);
+		
+		char* op_text = op->terminal.value.text;
+		
+		if (str_eql(op_text, "+") == 0) {
+			emit_add_reg_reg(Register_RAX, Register_RCX);
+		} else if (str_eql(op_text, "-") == 0) {
+			emit_sub_reg_reg(Register_RCX, Register_RAX);
+			emit_xchg_reg_reg(Register_RCX, Register_RAX);
+		} else if (str_eql(op_text, "*") == 0) {
+			// imul rax, rcx
+			emit_byte(0x48); emit_byte(0x0f); emit_byte(0xaf); emit_byte(0xc1);
+		} else if (str_eql(op_text, "/") == 0) {
+			emit_xchg_reg_reg(Register_RCX, Register_RAX);
+			emit_cqo();
+			// idiv rcx
+			emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
+		} else if (str_eql(op_text, "%") == 0) {
+			emit_xchg_reg_reg(Register_RCX, Register_RAX);
+			emit_cqo();
+			// idiv rcx
+			emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
+			// mod is stored in rdx, move to rax
+			emit_xchg_reg_reg(Register_RAX, Register_RDX);
+		} else {
+			error_internal("Operator not implemented yet :P");
+		}
 	}
 }
 
