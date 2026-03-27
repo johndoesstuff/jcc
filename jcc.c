@@ -41,6 +41,10 @@ enum {
 	Token_Type_AND,
 	Token_Type_EXCLUSIVE_OR,
 	Token_Type_INCLUSIVE_OR,
+	Token_Type_LOGICAL_AND,
+	Token_Type_LOGICAL_OR,
+	Token_Type_CONDITIONAL,
+	Token_Type_COLON,
 
 	Token_Type_UNKNOWN,
 } typedef Token_Type;
@@ -68,6 +72,10 @@ char* Token_Type_to_str(Token_Type t) {
 	else if (t == Token_Type_AND) return "AND";
 	else if (t == Token_Type_EXCLUSIVE_OR) return "EXCLUSIVE_OR";
 	else if (t == Token_Type_INCLUSIVE_OR) return "INCLUSIVE_OR";
+	else if (t == Token_Type_LOGICAL_AND) return "LOGICAL_AND";
+	else if (t == Token_Type_LOGICAL_OR) return "LOGICAL_OR";
+	else if (t == Token_Type_CONDITIONAL) return "CONDITIONAL";
+	else if (t == Token_Type_COLON) return "COLON";
 
 	else return "UNKNOWN";
 }
@@ -311,6 +319,7 @@ Token next_token() {
 				} else if (peek_char() == '&') {
 					ch = next_char();
 					*(tok_text++) = ch;
+					tok.type = Token_Type_LOGICAL_AND;
 				} else tok.type = Token_Type_AND;
 			} else if (ch == '|') {
 				if (peek_char() == '=') {
@@ -319,6 +328,7 @@ Token next_token() {
 				} else if (peek_char() == '|') {
 					ch = next_char();
 					*(tok_text++) = ch;
+					tok.type = Token_Type_LOGICAL_OR;
 				} else tok.type = Token_Type_INCLUSIVE_OR;
 			} else if (ch == '-') {
 				if (peek_char() == '-') {
@@ -365,7 +375,13 @@ Token next_token() {
 					ch = next_char();
 					*(tok_text++) = ch;
 				} else tok.type = Token_Type_EXCLUSIVE_OR;
-			} else if (ch == '~' || ch == ',' || ch == '?' || ch == ':' || ch == '.' || ch == ';') {}
+			} else if (ch == '?') {
+				*(tok_text++) = ch;
+				tok.type = Token_Type_CONDITIONAL;
+			} else if (ch == ':') {
+				*(tok_text++) = ch;
+				tok.type = Token_Type_COLON;
+			} else if (ch == '~' || ch == ',' || ch == '.' || ch == ';') {}
 			else {
 				tok.type = Token_Type_UNKNOWN;
 			}
@@ -402,11 +418,15 @@ enum {
 	AST_Type_AND_EXPRESSION,
 	AST_Type_EXCLUSIVE_OR_EXPRESSION,
 	AST_Type_INCLUSIVE_OR_EXPRESSION,
+	AST_Type_LOGICAL_AND_EXPRESSION,
+	AST_Type_LOGICAL_OR_EXPRESSION,
+	AST_Type_CONDITIONAL_EXPRESSION,
 } typedef AST_Type;
 
 struct AST_node {
 	AST_Type type;
 	union {
+		// TODO: condense binary ops into union
 		struct {
 			struct AST_node* left;
 			struct AST_node* op;
@@ -448,6 +468,21 @@ struct AST_node {
 			struct AST_node* right;
 		} inclusive_or_expression;
 		struct {
+			struct AST_node* left;
+			struct AST_node* op;
+			struct AST_node* right;
+		} logical_and_expression;
+		struct {
+			struct AST_node* left;
+			struct AST_node* op;
+			struct AST_node* right;
+		} logical_or_expression;
+		struct {
+			struct AST_node* condition;
+			struct AST_node* left;
+			struct AST_node* right;
+		} conditional_expression;
+		struct {
 			Token value;
 		} terminal;
 	};
@@ -485,14 +520,14 @@ AST_node* expect(Token_Type t) {
 	return NULL;
 }
 
-AST_node* parse_inclusive_or_expression();
-	AST_node* left;
+AST_node* parse_conditional_expression();
 
 // recursive descent parsing rules:
 AST_node* parse_primary_expression() {
+	AST_node* left;
 	if (current_token().type == Token_Type_O_PAREN) {
 		expect(Token_Type_O_PAREN);
-		left = parse_inclusive_or_expression(); // TODO: actually parse expression
+		left = parse_conditional_expression(); // TODO: actually parse expression
 		expect(Token_Type_C_PAREN);
 	} else if (current_token().type == Token_Type_NUMBER) { // TODO: parse general constants and identifiers
 		left = expect(Token_Type_NUMBER);
@@ -604,6 +639,45 @@ AST_node* parse_inclusive_or_expression() {
 	return left;
 }
 
+AST_node* parse_logical_and_expression() {
+	AST_node* left = parse_inclusive_or_expression();
+	if (current_token().type == Token_Type_LOGICAL_AND) {
+		AST_node* node = malloc(sizeof(AST_node));
+		node->type = AST_Type_LOGICAL_AND_EXPRESSION;
+		node->logical_and_expression.left = left;
+		node->logical_and_expression.op = expect(Token_Type_LOGICAL_AND);
+		node->logical_and_expression.right = parse_logical_and_expression();
+		return node;
+	}
+	return left;
+}
+
+AST_node* parse_logical_or_expression() {
+	AST_node* left = parse_logical_and_expression();
+	if (current_token().type == Token_Type_LOGICAL_OR) {
+		AST_node* node = malloc(sizeof(AST_node));
+		node->type = AST_Type_LOGICAL_OR_EXPRESSION;
+		node->logical_or_expression.left = left;
+		node->logical_or_expression.op = expect(Token_Type_LOGICAL_OR);
+		node->logical_or_expression.right = parse_logical_and_expression();
+		return node;
+	}
+	return left;
+}
+
+AST_node* parse_conditional_expression() {
+	AST_node* left = parse_logical_or_expression();
+	if (current_token().type == Token_Type_CONDITIONAL) {
+		AST_node* node = malloc(sizeof(AST_node));
+		node->type = AST_Type_CONDITIONAL_EXPRESSION;
+		node->conditional_expression.condition = left;
+		node->conditional_expression.left = parse_logical_and_expression(); // TODO: this should be expression
+		node->conditional_expression.right = parse_logical_and_expression();
+		return node;
+	}
+	return left;
+}
+
 // for debugging purposes
 void print_ast(AST_node* node, int depth) {
 	for (int i = 0; i < depth; i++)
@@ -650,6 +724,21 @@ void print_ast(AST_node* node, int depth) {
 		print_ast(node->inclusive_or_expression.left, depth + 1);
 		print_ast(node->inclusive_or_expression.op, depth + 1);
 		print_ast(node->inclusive_or_expression.right, depth + 1);
+	} else if (node->type == AST_Type_LOGICAL_AND_EXPRESSION) {
+		printf("Node: LOGICAL_AND_EXPRESSION\n");
+		print_ast(node->logical_and_expression.left, depth + 1);
+		print_ast(node->logical_and_expression.op, depth + 1);
+		print_ast(node->logical_and_expression.right, depth + 1);
+	} else if (node->type == AST_Type_LOGICAL_OR_EXPRESSION) {
+		printf("Node: LOGICAL_OR_EXPRESSION\n");
+		print_ast(node->logical_or_expression.left, depth + 1);
+		print_ast(node->logical_or_expression.op, depth + 1);
+		print_ast(node->logical_or_expression.right, depth + 1);
+	} else if (node->type == AST_Type_CONDITIONAL_EXPRESSION) {
+		printf("Node: CONDITIONAL_EXPRESSION\n");
+		print_ast(node->conditional_expression.condition, depth + 1);
+		print_ast(node->conditional_expression.left, depth + 1);
+		print_ast(node->conditional_expression.right, depth + 1);
 	}
 }
 
@@ -985,7 +1074,7 @@ int main() {
 	next_token();
 
 	// parse program
-	AST_node* program = parse_inclusive_or_expression();
+	AST_node* program = parse_conditional_expression();
 	print_ast(program, 0);
 
 	// prepare output
