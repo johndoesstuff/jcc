@@ -485,9 +485,23 @@ AST_node* expect(Token_Type t) {
 	return NULL;
 }
 
+AST_node* parse_inclusive_or_expression();
+	AST_node* left;
+
 // recursive descent parsing rules:
+AST_node* parse_primary_expression() {
+	if (current_token().type == Token_Type_O_PAREN) {
+		expect(Token_Type_O_PAREN);
+		left = parse_inclusive_or_expression(); // TODO: actually parse expression
+		expect(Token_Type_C_PAREN);
+	} else if (current_token().type == Token_Type_NUMBER) { // TODO: parse general constants and identifiers
+		left = expect(Token_Type_NUMBER);
+	}
+	return left;
+}
+
 AST_node* parse_multiplicative_expression() {
-	AST_node* left = expect(Token_Type_NUMBER);
+	AST_node* left = parse_primary_expression();
 	if (current_token().type == Token_Type_MULTIPLICATIVE) {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_MULTIPLICATIVE_EXPRESSION;
@@ -930,11 +944,17 @@ void generate_code(AST_node* node) {
 		// imul rax, rcx
 		emit_byte(0x48); emit_byte(0x0f); emit_byte(0xaf); emit_byte(0xc1);
 	} else if (str_eql(op_text, "/") == 0) {
-		// xchg rcx, rax
-		emit_byte(0x48); emit_byte(0x91);
+		emit_xchg_reg_reg(Register_RCX, Register_RAX);
 		emit_cqo();
 		// idiv rcx
 		emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
+	} else if (str_eql(op_text, "%") == 0) {
+		emit_xchg_reg_reg(Register_RCX, Register_RAX);
+		emit_cqo();
+		// idiv rcx
+		emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
+		// mod is stored in rdx, move to rax
+		emit_xchg_reg_reg(Register_RAX, Register_RDX);
 	} else {
 		error_internal("Operator not implemented yet :P");
 	}
