@@ -946,6 +946,14 @@ void generate_code(AST_node* node) {
 			emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
 			// mod is stored in rdx, move to rax
 			emit_xchg_reg_reg(Register_RAX, Register_RDX);
+		} else if (str_eql(op_text, "<<") == 0) {
+			emit_xchg_reg_reg(Register_RAX, Register_RCX);
+			// shl rax, cl
+			emit_byte(0x48); emit_byte(0xd3); emit_byte(0xe0);
+		} else if (str_eql(op_text, ">>") == 0) {
+			emit_xchg_reg_reg(Register_RAX, Register_RCX);
+			// shr rax, cl
+			emit_byte(0x48); emit_byte(0xd3); emit_byte(0xe8);
 		} else {
 			error_internal("Operator not implemented yet :P");
 		}
