@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/stat.h> // used for chmod
+#include <string.h>   // used for sprintf
 
 #define BUFFER_SIZE 65536
 #define MAX_TOKEN 1024
@@ -982,8 +983,24 @@ void generate_code(AST_node* node) {
 			emit_byte(0x0f); emit_byte(0x9d); emit_byte(0xc0);
 			// and al, 1
 			emit_byte(0x24); emit_byte(0x01);
+		} else if (str_eql(op_text, "==") == 0) {
+			// cmp rax, rcx
+			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			// sete al
+			emit_byte(0x0f); emit_byte(0x94); emit_byte(0xc0);
+			// and al, 1
+			emit_byte(0x24); emit_byte(0x01);
+		} else if (str_eql(op_text, "!=") == 0) {
+			// cmp rax, rcx
+			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			// setne al
+			emit_byte(0x0f); emit_byte(0x95); emit_byte(0xc0);
+			// and al, 1
+			emit_byte(0x24); emit_byte(0x01);
 		} else {
-			error_internal("Operator not implemented yet :P");
+			char buf[128] = "Operator %d not implemented yet :P";
+			snprintf(buf, sizeof(buf), buf, op_text);
+			error_internal(buf);
 		}
 	}
 }
