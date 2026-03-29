@@ -997,6 +997,15 @@ void generate_code(AST_node* node) {
 			emit_byte(0x0f); emit_byte(0x95); emit_byte(0xc0);
 			// and al, 1
 			emit_byte(0x24); emit_byte(0x01);
+		} else if (str_eql(op_text, "&") == 0) {
+			// and rax, rcx
+			emit_byte(0x48); emit_byte(0x21); emit_byte(0xc8);
+		} else if (str_eql(op_text, "^") == 0) {
+			// xor rax, rcx
+			emit_byte(0x48); emit_byte(0x31); emit_byte(0xc8);
+		} else if (str_eql(op_text, "|") == 0) {
+			// or rax, rcx
+			emit_byte(0x48); emit_byte(0x09); emit_byte(0xc8);
 		} else {
 			char buf[128] = "Operator %d not implemented yet :P";
 			snprintf(buf, sizeof(buf), buf, op_text);
