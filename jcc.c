@@ -976,36 +976,30 @@ void emit_cqo() {
 	emit_byte(0x99);
 }
 
-void emit_jz(Label target) {
-	emit_byte(0x0f);
-	emit_byte(0x84);
+void emit_label(Label target) {
 	// 32bit relative addr, resolve later
 	resolution_addresses[resolution_count] = current_byte;
 	resolution_ids[resolution_count] = target.id;
 	resolution_count++;
 	// unknown addr for now
 	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+}
+
+void emit_jz(Label target) {
+	emit_byte(0x0f);
+	emit_byte(0x84);
+	emit_label(target);
 }
 
 void emit_jnz(Label target) {
 	emit_byte(0x0f);
 	emit_byte(0x85);
-	// 32bit relative addr, resolve later
-	resolution_addresses[resolution_count] = current_byte;
-	resolution_ids[resolution_count] = target.id;
-	resolution_count++;
-	// unknown addr for now
-	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+	emit_label(target);
 }
 
 void emit_jmp(Label target) {
 	emit_byte(0xe9);
-	// 32bit relative addr, resolve later
-	resolution_addresses[resolution_count] = current_byte;
-	resolution_ids[resolution_count] = target.id;
-	resolution_count++;
-	// unknown addr for now
-	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+	emit_label(target);
 }
 
 int short_circuits(const char* op) {
