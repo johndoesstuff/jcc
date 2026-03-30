@@ -704,6 +704,37 @@ void emit_byte(unsigned char byte) {
 	current_byte++;
 }
 
+// set byte at address in file
+void set_byte(uint64_t addr, unsigned char byte) {
+	fseek(out_file, (long)addr, SEEK_SET);
+	putc(byte, out_file);
+	fseek(out_file, 0, SEEK_END);
+}
+
+// set an i32 at address in file
+void set_i32(uint64_t addr, int32_t data) {
+	fseek(out_file, (long)addr, SEEK_SET);
+	putc(data & 0xff, out_file);
+	putc((data >> 8) & 0xff, out_file);
+	putc((data >> 16) & 0xff, out_file);
+	putc((data >> 24) & 0xff, out_file);
+	fseek(out_file, 0, SEEK_END);
+}
+
+// set an i64 at address in file
+void set_i64(uint64_t addr, int64_t data) {
+	fseek(out_file, (long)addr, SEEK_SET);
+	putc(data & 0xff, out_file);
+	putc((data >> 8) & 0xff, out_file);
+	putc((data >> 16) & 0xff, out_file);
+	putc((data >> 24) & 0xff, out_file);
+	putc((data >> 32) & 0xff, out_file);
+	putc((data >> 40) & 0xff, out_file);
+	putc((data >> 48) & 0xff, out_file);
+	putc((data >> 56) & 0xff, out_file);
+	fseek(out_file, 0, SEEK_END);
+}
+
 typedef struct {
 	uint8_t  e_ident[16];
 	uint16_t e_type;	
@@ -789,6 +820,45 @@ void write_elf_header() {
 }
 
 /*
+ * Keeping track of labels is important, for forward referencing labels we cant
+ * emit linearly with a one-pass system, to solve this we can make and mark
+ * labels then resolve them after emission
+ */
+
+int label_count = 0;
+typedef struct {
+	int id;
+	uint64_t offset;
+} Label;
+
+Label labels[1024]; // surely we wont ever need more than this right?? right???
+int resolution_count = 0; // resolution count may not equal label count as we
+						  // can have two jumps pointing to the same label
+uint64_t resolution_addresses[1024];
+int resolution_ids[1024];
+
+Label make_label() {
+	Label l;
+	l.id = label_count;
+	l.offset = 0xffffffff; // unknown absolute addr
+	labels[label_count] = l;
+	label_count++;
+	return l;
+}
+
+void mark_label(Label* label) {
+	label->offset = current_byte;
+	labels[label->id].offset = current_byte;
+}
+
+void resolve_labels() {
+	uint64_t save_byte;
+	for (int i = 0; i < resolution_count; i++) {
+		set_i32(resolution_addresses[i], labels[resolution_ids[i]].offset - (resolution_addresses[i] + 4));
+	}
+}
+
+/*
  * Awesome, now we can worry about the actual x86_64 codegen
  */
 
@@ -839,9 +909,9 @@ void emit_mov_reg_imm(Codegen_Register reg, int64_t val) {
 	emit_byte(0xc0 + reg_canon(reg));
 	// little endian
 	emit_byte(val & 0xff);
-	emit_byte((val << 8) & 0xff);
-	emit_byte((val << 16) & 0xff);
-	emit_byte((val << 24) & 0xff);
+	emit_byte((val >> 8) & 0xff);
+	emit_byte((val >> 16) & 0xff);
+	emit_byte((val >> 24) & 0xff);
 }
 
 void emit_push_reg(Codegen_Register reg) {
@@ -879,7 +949,7 @@ void emit_sub_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
 		emit_byte(0x48 + reg_is_64bit(reg1));
 	}
 	emit_byte(0x29);
-	emit_byte(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
+	emit_byte(0xc0 + (reg_canon(reg2) >> 3) + reg_canon(reg1));
 }
 
 void emit_xchg_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
@@ -897,13 +967,49 @@ void emit_xchg_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
 	} else {
 		emit_byte(0x48 + reg_is_64bit(reg1) + (reg_is_64bit(reg2) >> 3));
 		emit_byte(0x87);
-		emit_byte(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
+		emit_byte(0xc0 + (reg_canon(reg2) >> 3) + reg_canon(reg1));
 	}
 }
 
 void emit_cqo() {
 	emit_byte(0x48);
 	emit_byte(0x99);
+}
+
+void emit_jz(Label target) {
+	emit_byte(0x0f);
+	emit_byte(0x84);
+	// 32bit relative addr, resolve later
+	resolution_addresses[resolution_count] = current_byte;
+	resolution_ids[resolution_count] = target.id;
+	resolution_count++;
+	// unknown addr for now
+	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+}
+
+void emit_jnz(Label target) {
+	emit_byte(0x0f);
+	emit_byte(0x85);
+	// 32bit relative addr, resolve later
+	resolution_addresses[resolution_count] = current_byte;
+	resolution_ids[resolution_count] = target.id;
+	resolution_count++;
+	// unknown addr for now
+	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+}
+
+void emit_jmp(Label target) {
+	emit_byte(0xe9);
+	// 32bit relative addr, resolve later
+	resolution_addresses[resolution_count] = current_byte;
+	resolution_ids[resolution_count] = target.id;
+	resolution_count++;
+	// unknown addr for now
+	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+}
+
+int short_circuits(const char* op) {
+	return !str_eql(op, "&&") || !str_eql(op, "||");
 }
 
 void generate_code(AST_node* node) {
@@ -919,13 +1025,19 @@ void generate_code(AST_node* node) {
 		AST_node* left  = node->binary_expression.left;
 		AST_node* op    = node->binary_expression.op;
 		AST_node* right = node->binary_expression.right;
-
-		generate_code(left);
-		emit_push_reg(Register_RAX); // TODO: very temporary solution
-		generate_code(right);
-		emit_pop_reg(Register_RCX);
-		
 		char* op_text = op->terminal.value.text;
+
+		// we can only do l/r codegen for non short-circuiting ops
+		if (!short_circuits(op_text)) {
+			generate_code(left);
+			emit_push_reg(Register_RAX); // TODO: very temporary solution, ideally
+										 // we want some type of register
+										 // allocation but that can come after an
+										 // ir
+
+			generate_code(right);
+			emit_pop_reg(Register_RCX);
+		}
 		
 		if (str_eql(op_text, "+") == 0) {
 			emit_add_reg_reg(Register_RAX, Register_RCX);
@@ -1006,6 +1118,46 @@ void generate_code(AST_node* node) {
 		} else if (str_eql(op_text, "|") == 0) {
 			// or rax, rcx
 			emit_byte(0x48); emit_byte(0x09); emit_byte(0xc8);
+		} else if (str_eql(op_text, "&&") == 0) {
+			Label false_label = make_label();
+			Label end_label = make_label();
+
+			generate_code(left);
+			// test rax, rax
+			emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
+			// jz false_label
+			emit_jz(false_label);
+
+			generate_code(right);
+			// and al, 1
+			emit_byte(0x24); emit_byte(0x01);
+			emit_jmp(end_label);
+
+			mark_label(&false_label);
+			// xor rax, rax
+			emit_byte(0x48); emit_byte(0x31); emit_byte(0xc0);
+
+			mark_label(&end_label);
+		} else if (str_eql(op_text, "||") == 0) {
+			Label true_label = make_label();
+			Label end_label = make_label();
+
+			generate_code(left);
+			// test rax, rax
+			emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
+			// jnz true_label
+			emit_jnz(true_label);
+
+			generate_code(right);
+			// and al, 1
+			emit_byte(0x24); emit_byte(0x01);
+			emit_jmp(end_label);
+
+			mark_label(&true_label);
+			// mov al, 1
+			emit_byte(0xb0); emit_byte(0x01);
+
+			mark_label(&end_label);
 		} else {
 			char buf[128] = "Operator %d not implemented yet :P";
 			snprintf(buf, sizeof(buf), buf, op_text);
@@ -1049,6 +1201,7 @@ int main() {
 	// codegen
 	generate_code(program);
 	emit_exit();
+	resolve_labels();
 
 	// cleanup and allow execution
 	fclose(out_file);
