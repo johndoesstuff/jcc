@@ -658,8 +658,10 @@ AST_node* parse_conditional_expression() {
 		AST_node* node = malloc(sizeof(AST_node));
 		node->type = AST_Type_CONDITIONAL_EXPRESSION;
 		node->conditional_expression.condition = left;
+		expect(Token_Type_CONDITIONAL);
 		node->conditional_expression.left = parse_logical_and_expression(); // TODO: this should be expression
-		node->conditional_expression.right = parse_logical_and_expression();
+		expect(Token_Type_COLON);
+		node->conditional_expression.right = parse_conditional_expression();
 		return node;
 	}
 	return left;
@@ -1119,7 +1121,6 @@ void generate_code(AST_node* node) {
 			generate_code(left);
 			// test rax, rax
 			emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
-			// jz false_label
 			emit_jz(false_label);
 
 			generate_code(right);
@@ -1139,7 +1140,6 @@ void generate_code(AST_node* node) {
 			generate_code(left);
 			// test rax, rax
 			emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
-			// jnz true_label
 			emit_jnz(true_label);
 
 			generate_code(right);
@@ -1157,6 +1157,27 @@ void generate_code(AST_node* node) {
 			snprintf(buf, sizeof(buf), buf, op_text);
 			error_internal(buf);
 		}
+	} else if (node->type == AST_Type_CONDITIONAL_EXPRESSION) {
+		Label false_label = make_label();
+		Label end_label = make_label();
+
+		AST_node* condition = node->conditional_expression.condition;
+		AST_node* left = node->conditional_expression.left;
+		AST_node* right = node->conditional_expression.right;
+		
+		generate_code(condition);
+		// test rax, rax
+		emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
+		emit_jz(false_label);
+
+		// true_label
+		generate_code(left);
+		emit_jmp(end_label);
+
+		mark_label(&false_label);
+		generate_code(right);
+
+		mark_label(&end_label);
 	}
 }
 
