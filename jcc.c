@@ -522,135 +522,30 @@ AST_node* parse_primary_expression() {
 	return left;
 }
 
-AST_node* parse_multiplicative_expression() {
-	AST_node* left = parse_primary_expression();
-	if (current_token().type == Token_Type_MULTIPLICATIVE) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_MULTIPLICATIVE_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_MULTIPLICATIVE);
-		node->binary_expression.right = parse_multiplicative_expression();
-		return node;
-	}
-	return left;
+// all binary ops use the exact same logic
+#define PARSE_BINARY_EXPRESSION(NAME, OPERATOR, AST, NEXT) AST_node* NAME() { \
+	AST_node* left = NEXT(); \
+	while (current_token().type == OPERATOR) { \
+		AST_node* node = malloc(sizeof(AST_node)); \
+		node->type = AST; \
+		node->binary_expression.left = left; \
+		node->binary_expression.op = expect(OPERATOR); \
+		node->binary_expression.right = NEXT(); \
+		left = node; \
+	} \
+	return left; \
 }
 
-AST_node* parse_additive_expression() {
-	AST_node* left = parse_multiplicative_expression();
-	if (current_token().type == Token_Type_ADDITIVE) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_ADDITIVE_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_ADDITIVE);
-		node->binary_expression.right = parse_additive_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_shift_expression() {
-	AST_node* left = parse_additive_expression();
-	if (current_token().type == Token_Type_SHIFT) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_SHIFT_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_SHIFT);
-		node->binary_expression.right = parse_shift_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_relational_expression() {
-	AST_node* left = parse_shift_expression();
-	if (current_token().type == Token_Type_RELATIONAL) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_RELATIONAL_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_RELATIONAL);
-		node->binary_expression.right = parse_relational_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_equality_expression() {
-	AST_node* left = parse_relational_expression();
-	if (current_token().type == Token_Type_EQUALITY) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_EQUALITY_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_EQUALITY);
-		node->binary_expression.right = parse_equality_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_and_expression() {
-	AST_node* left = parse_equality_expression();
-	if (current_token().type == Token_Type_AND) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_AND_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_AND);
-		node->binary_expression.right = parse_and_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_exclusive_or_expression() {
-	AST_node* left = parse_and_expression();
-	if (current_token().type == Token_Type_EXCLUSIVE_OR) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_EXCLUSIVE_OR_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_EXCLUSIVE_OR);
-		node->binary_expression.right = parse_exclusive_or_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_inclusive_or_expression() {
-	AST_node* left = parse_exclusive_or_expression();
-	if (current_token().type == Token_Type_INCLUSIVE_OR) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_INCLUSIVE_OR_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_INCLUSIVE_OR);
-		node->binary_expression.right = parse_inclusive_or_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_logical_and_expression() {
-	AST_node* left = parse_inclusive_or_expression();
-	if (current_token().type == Token_Type_LOGICAL_AND) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_LOGICAL_AND_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_LOGICAL_AND);
-		node->binary_expression.right = parse_logical_and_expression();
-		return node;
-	}
-	return left;
-}
-
-AST_node* parse_logical_or_expression() {
-	AST_node* left = parse_logical_and_expression();
-	if (current_token().type == Token_Type_LOGICAL_OR) {
-		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_LOGICAL_OR_EXPRESSION;
-		node->binary_expression.left = left;
-		node->binary_expression.op = expect(Token_Type_LOGICAL_OR);
-		node->binary_expression.right = parse_logical_and_expression();
-		return node;
-	}
-	return left;
-}
+PARSE_BINARY_EXPRESSION(parse_multiplicative_expression, Token_Type_MULTIPLICATIVE, AST_Type_MULTIPLICATIVE_EXPRESSION, parse_primary_expression)
+PARSE_BINARY_EXPRESSION(parse_additive_expression, Token_Type_ADDITIVE, AST_Type_ADDITIVE_EXPRESSION, parse_multiplicative_expression)
+PARSE_BINARY_EXPRESSION(parse_shift_expression, Token_Type_SHIFT, AST_Type_SHIFT_EXPRESSION, parse_additive_expression)
+PARSE_BINARY_EXPRESSION(parse_relational_expression, Token_Type_RELATIONAL, AST_Type_RELATIONAL_EXPRESSION, parse_shift_expression)
+PARSE_BINARY_EXPRESSION(parse_equality_expression, Token_Type_EQUALITY, AST_Type_EQUALITY_EXPRESSION, parse_relational_expression)
+PARSE_BINARY_EXPRESSION(parse_and_expression, Token_Type_AND, AST_Type_AND_EXPRESSION, parse_equality_expression)
+PARSE_BINARY_EXPRESSION(parse_exclusive_or_expression, Token_Type_EXCLUSIVE_OR, AST_Type_EXCLUSIVE_OR_EXPRESSION, parse_and_expression)
+PARSE_BINARY_EXPRESSION(parse_inclusive_or_expression, Token_Type_INCLUSIVE_OR, AST_Type_INCLUSIVE_OR_EXPRESSION, parse_exclusive_or_expression)
+PARSE_BINARY_EXPRESSION(parse_logical_and_expression, Token_Type_LOGICAL_AND, AST_Type_LOGICAL_AND_EXPRESSION, parse_inclusive_or_expression)
+PARSE_BINARY_EXPRESSION(parse_logical_or_expression, Token_Type_LOGICAL_OR, AST_Type_LOGICAL_OR_EXPRESSION, parse_logical_and_expression)
 
 AST_node* parse_conditional_expression() {
 	AST_node* left = parse_logical_or_expression();
