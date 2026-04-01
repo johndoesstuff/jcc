@@ -22,7 +22,6 @@
 enum {
 	Token_Type_IDENTIFIER,
 	Token_Type_NUMBER,
-	Token_Type_KEYWORD,
 	Token_Type_STRING,
 	Token_Type_CHAR,
 	Token_Type_O_PAREN,
@@ -87,7 +86,6 @@ enum {
 char* Token_Type_to_str(Token_Type t) {
 	if (t == Token_Type_IDENTIFIER) return "IDENTIFIER";
 	else if (t == Token_Type_NUMBER) return "NUMBER";
-	else if (t == Token_Type_KEYWORD) return "KEYWORD";
 	else if (t == Token_Type_STRING) return "STRING";
 	else if (t == Token_Type_CHAR) return "CHAR";
 	else if (t == Token_Type_O_PAREN) return "OPEN PARENTHESIS";
@@ -112,6 +110,41 @@ char* Token_Type_to_str(Token_Type t) {
 	else if (t == Token_Type_CONDITIONAL) return "CONDITIONAL";
 	else if (t == Token_Type_COLON) return "COLON";
 
+	else if (t == Token_Type_AUTO) return "AUTO";
+	else if (t == Token_Type_BREAK) return "BREAK";
+	else if (t == Token_Type_CASE) return "CASE";
+	else if (t == Token_Type_CHAR) return "CHAR";
+	else if (t == Token_Type_CONST) return "CONST";
+	else if (t == Token_Type_CONTINUE) return "CONTINUE";
+	else if (t == Token_Type_DEFAULT) return "DEFAULT";
+	else if (t == Token_Type_DO) return "DO";
+	else if (t == Token_Type_DOUBLE) return "DOUBLE";
+	else if (t == Token_Type_ELSE) return "ELSE";
+	else if (t == Token_Type_ENUM) return "ENUM";
+	else if (t == Token_Type_EXTERN) return "EXTERN";
+	else if (t == Token_Type_FLOAT) return "FLOAT";
+	else if (t == Token_Type_FOR) return "FOR";
+	else if (t == Token_Type_GOTO) return "GOTO";
+	else if (t == Token_Type_IF) return "IF";
+	else if (t == Token_Type_INT) return "INT";
+	else if (t == Token_Type_LONG) return "LONG";
+	else if (t == Token_Type_REGISTER) return "REGISTER";
+	else if (t == Token_Type_RETURN) return "RETURN";
+	else if (t == Token_Type_SHORT) return "SHORT";
+	else if (t == Token_Type_SIGNED) return "SIGNED";
+	else if (t == Token_Type_SIZEOF) return "SIZEOF";
+	else if (t == Token_Type_STATIC) return "STATIC";
+	else if (t == Token_Type_STRUCT) return "STRUCT";
+	else if (t == Token_Type_SWITCH) return "SWITCH";
+	else if (t == Token_Type_TYPEDEF) return "TYPEDEF";
+	else if (t == Token_Type_UNION) return "UNION";
+	else if (t == Token_Type_UNSIGNED) return "UNSIGNED";
+	else if (t == Token_Type_VOID) return "VOID";
+	else if (t == Token_Type_VOLATILE) return "VOLATILE";
+	else if (t == Token_Type_WHILE) return "WHILE";
+	else if (t == Token_Type_NULL) return "NULL";
+	else if (t == Token_Type_SIZE_T) return "SIZE_T";
+
 	else return "UNKNOWN";
 }
 
@@ -133,8 +166,6 @@ void error_internal(const char* msg) {
 	fprintf(stderr, "Fatal internal error: %s\n", msg);
 	exit(1);
 }
-
-char keywords[] = "auto break case char const continue default do double else enum extern float for goto if int long register return short signed sizeof static struct switch typedef union unsigned void volatile while NULL size_t";
 
 size_t cur_line = 1;
 size_t cur_col = 0;
@@ -202,26 +233,6 @@ char next_non_ws_char() {
 	return ch;
 }
 
-int is_keyword(char* str) {
-	char* base = str;
-	char* keyword_ptr = keywords;
-	while (*keyword_ptr != '\0') {
-		if (*str == *keyword_ptr) {
-			str++;
-			keyword_ptr++;
-		} else if (*str == '\0' && *keyword_ptr == ' ') {
-			return 1;
-		} else {
-			str = base;
-			while (*keyword_ptr != ' ' && *keyword_ptr != '\0')
-				keyword_ptr++;
-			keyword_ptr++;
-		}
-	}
-	if (*str == '\0') return 1;
-	return 0;
-}
-
 // bootleg strcmp
 int str_eql(const char* s1, const char* s2) {
 	const char* p1 = s1;
@@ -254,43 +265,41 @@ Token next_token() {
 				*(tok_text++) = ch;
 			}
 			*tok_text = '\0';
-			if (is_keyword(tok.text)) {
-				if (str_eql(tok.text, "auto")) tok.type = Token_Type_AUTO;
-				else if (str_eql(tok.text, "break")) tok.type = Token_Type_BREAK;
-				else if (str_eql(tok.text, "case")) tok.type = Token_Type_CASE;
-				else if (str_eql(tok.text, "char")) tok.type = Token_Type_CHAR;
-				else if (str_eql(tok.text, "const")) tok.type = Token_Type_CONST;
-				else if (str_eql(tok.text, "continue")) tok.type = Token_Type_CONTINUE;
-				else if (str_eql(tok.text, "default")) tok.type = Token_Type_DEFAULT;
-				else if (str_eql(tok.text, "do")) tok.type = Token_Type_DO;
-				else if (str_eql(tok.text, "double")) tok.type = Token_Type_DOUBLE;
-				else if (str_eql(tok.text, "else")) tok.type = Token_Type_ELSE;
-				else if (str_eql(tok.text, "enum")) tok.type = Token_Type_ENUM;
-				else if (str_eql(tok.text, "extern")) tok.type = Token_Type_EXTERN;
-				else if (str_eql(tok.text, "float")) tok.type = Token_Type_FLOAT;
-				else if (str_eql(tok.text, "for")) tok.type = Token_Type_FOR;
-				else if (str_eql(tok.text, "goto")) tok.type = Token_Type_GOTO;
-				else if (str_eql(tok.text, "if")) tok.type = Token_Type_IF;
-				else if (str_eql(tok.text, "int")) tok.type = Token_Type_INT;
-				else if (str_eql(tok.text, "long")) tok.type = Token_Type_LONG;
-				else if (str_eql(tok.text, "register")) tok.type = Token_Type_REGISTER;
-				else if (str_eql(tok.text, "return")) tok.type = Token_Type_RETURN;
-				else if (str_eql(tok.text, "short")) tok.type = Token_Type_SHORT;
-				else if (str_eql(tok.text, "signed")) tok.type = Token_Type_SIGNED;
-				else if (str_eql(tok.text, "sizeof")) tok.type = Token_Type_SIZEOF;
-				else if (str_eql(tok.text, "static")) tok.type = Token_Type_STATIC;
-				else if (str_eql(tok.text, "struct")) tok.type = Token_Type_STRUCT;
-				else if (str_eql(tok.text, "switch")) tok.type = Token_Type_SWITCH;
-				else if (str_eql(tok.text, "typedef")) tok.type = Token_Type_TYPEDEF;
-				else if (str_eql(tok.text, "union")) tok.type = Token_Type_UNION;
-				else if (str_eql(tok.text, "unsigned")) tok.type = Token_Type_UNSIGNED;
-				else if (str_eql(tok.text, "void")) tok.type = Token_Type_VOID;
-				else if (str_eql(tok.text, "volatile")) tok.type = Token_Type_VOLATILE;
-				else if (str_eql(tok.text, "while")) tok.type = Token_Type_WHILE;
-				else if (str_eql(tok.text, "NULL")) tok.type = Token_Type_NULL;
-				else if (str_eql(tok.text, "size_t")) tok.type = Token_Type_SIZE_T;
-				else error_internal("Unknown keyword??");
-			} else tok.type = Token_Type_IDENTIFIER;
+			if (str_eql(tok.text, "auto") == 0) tok.type = Token_Type_AUTO;
+			else if (str_eql(tok.text, "break") == 0) tok.type = Token_Type_BREAK;
+			else if (str_eql(tok.text, "case") == 0) tok.type = Token_Type_CASE;
+			else if (str_eql(tok.text, "char") == 0) tok.type = Token_Type_CHAR;
+			else if (str_eql(tok.text, "const") == 0) tok.type = Token_Type_CONST;
+			else if (str_eql(tok.text, "continue") == 0) tok.type = Token_Type_CONTINUE;
+			else if (str_eql(tok.text, "default") == 0) tok.type = Token_Type_DEFAULT;
+			else if (str_eql(tok.text, "do") == 0) tok.type = Token_Type_DO;
+			else if (str_eql(tok.text, "double") == 0) tok.type = Token_Type_DOUBLE;
+			else if (str_eql(tok.text, "else") == 0) tok.type = Token_Type_ELSE;
+			else if (str_eql(tok.text, "enum") == 0) tok.type = Token_Type_ENUM;
+			else if (str_eql(tok.text, "extern") == 0) tok.type = Token_Type_EXTERN;
+			else if (str_eql(tok.text, "float") == 0) tok.type = Token_Type_FLOAT;
+			else if (str_eql(tok.text, "for") == 0) tok.type = Token_Type_FOR;
+			else if (str_eql(tok.text, "goto") == 0) tok.type = Token_Type_GOTO;
+			else if (str_eql(tok.text, "if") == 0) tok.type = Token_Type_IF;
+			else if (str_eql(tok.text, "int") == 0) tok.type = Token_Type_INT;
+			else if (str_eql(tok.text, "long") == 0) tok.type = Token_Type_LONG;
+			else if (str_eql(tok.text, "register") == 0) tok.type = Token_Type_REGISTER;
+			else if (str_eql(tok.text, "return") == 0) tok.type = Token_Type_RETURN;
+			else if (str_eql(tok.text, "short") == 0) tok.type = Token_Type_SHORT;
+			else if (str_eql(tok.text, "signed") == 0) tok.type = Token_Type_SIGNED;
+			else if (str_eql(tok.text, "sizeof") == 0) tok.type = Token_Type_SIZEOF;
+			else if (str_eql(tok.text, "static") == 0) tok.type = Token_Type_STATIC;
+			else if (str_eql(tok.text, "struct") == 0) tok.type = Token_Type_STRUCT;
+			else if (str_eql(tok.text, "switch") == 0) tok.type = Token_Type_SWITCH;
+			else if (str_eql(tok.text, "typedef") == 0) tok.type = Token_Type_TYPEDEF;
+			else if (str_eql(tok.text, "union") == 0) tok.type = Token_Type_UNION;
+			else if (str_eql(tok.text, "unsigned") == 0) tok.type = Token_Type_UNSIGNED;
+			else if (str_eql(tok.text, "void") == 0) tok.type = Token_Type_VOID;
+			else if (str_eql(tok.text, "volatile") == 0) tok.type = Token_Type_VOLATILE;
+			else if (str_eql(tok.text, "while") == 0) tok.type = Token_Type_WHILE;
+			else if (str_eql(tok.text, "NULL") == 0) tok.type = Token_Type_NULL;
+			else if (str_eql(tok.text, "size_t") == 0) tok.type = Token_Type_SIZE_T;
+			else tok.type = Token_Type_IDENTIFIER;
 		} else if (ch == '"') {
 			// string
 			int escaped = 0;
@@ -492,6 +501,8 @@ Token current_token() {
 
 enum {
 	AST_Type_TERMINAL,
+	AST_Type_TYPE_NAME,
+	AST_Type_CAST_EXPRESSION,
 	AST_Type_MULTIPLICATIVE_EXPRESSION,
 	AST_Type_ADDITIVE_EXPRESSION,
 	AST_Type_SHIFT_EXPRESSION,
@@ -524,6 +535,11 @@ struct AST_node {
 			struct AST_node* right;
 		} cast_expression;
 		struct {
+			int is_const;
+			int is_volatile;
+			Token specifier;
+		} type_name;
+		struct {
 			Token value;
 		} terminal;
 	};
@@ -546,6 +562,7 @@ int AST_is_binary(AST_Type type) {
 
 char* AST_Type_to_str(AST_Type t) {
 	if (t == AST_Type_TERMINAL) return "TERMINAL";
+	else if (t == AST_Type_CAST_EXPRESSION) return "CAST_EXPRESSION";
 	else if (t == AST_Type_MULTIPLICATIVE_EXPRESSION) return "MULTIPLICATIVE_EXPRESSION";
 	else if (t == AST_Type_ADDITIVE_EXPRESSION) return "ADDITIVE_EXPRESSION";
 	else if (t == AST_Type_SHIFT_EXPRESSION) return "SHIFT_EXPRESSION";
@@ -559,6 +576,15 @@ char* AST_Type_to_str(AST_Type t) {
 	else if (t == AST_Type_CONDITIONAL_EXPRESSION) return "CONDITIONAL_EXPRESSION";
 
 	else return "UNKNOWN";
+}
+
+// return an AST_node terminal of current token regardless of type
+AST_node* blind_accept() {
+	AST_node* node = malloc(sizeof(AST_node));
+	node->type = AST_Type_TERMINAL;
+	node->terminal.value = current_token();
+	next_token();
+	return node;
 }
 
 // return an AST_node terminal of current token if it is type t
@@ -596,60 +622,90 @@ AST_node* parse_primary_expression() {
 	return left;
 }
 
+int is_type_qualifier(Token tok) {
+	Token_Type t = tok.type;
+	return t == Token_Type_CONST || t == Token_Type_VOLATILE;
+}
+
 AST_node* parse_type_qualifier() {
-	const char* t = current_token().text;
-	if (str_eql(t, "const") == 0) {
-		return expect(Token_Type_KEYWORD);
-	} else if (str_eql(t, "volatile") == 0) {
-		return expect(Token_Type_KEYWORD);
-	}
-	error_unexpected_token(current_token(), Token_Type_KEYWORD); // really bad, token type
-												   // should eventually include
-												   // keyword distinction
+	if (is_type_qualifier(current_token())) return blind_accept();
+	else error_unexpected_token(current_token(), Token_Type_CONST); // TODO: expect multiple types of tokens
+}
+
+int is_type_specifier(Token tok) {
+	Token_Type t = tok.type;
+	return t == Token_Type_VOID || 
+		t == Token_Type_CHAR ||
+		t == Token_Type_SHORT ||
+		t == Token_Type_INT ||
+		t == Token_Type_LONG ||
+		t == Token_Type_FLOAT ||
+		t == Token_Type_DOUBLE ||
+		t == Token_Type_SIGNED ||
+		t == Token_Type_UNSIGNED;
 }
 
 AST_node* parse_type_specifier() {
+	if (is_type_specifier(current_token())) return blind_accept();
+	else error_unexpected_token(current_token(), Token_Type_VOID); // TODO: expect multiple types of tokens
+}
 
+int is_specifier_qualifier(Token tok) {
+	Token_Type t = tok.type;
+	return is_type_specifier(tok) || is_type_qualifier(tok);
 }
 
 AST_node* parse_specifier_qualifier() {
-	
+	if (is_specifier_qualifier(current_token())) return blind_accept();
+	else error_unexpected_token(current_token(), Token_Type_VOID);
 }
 
 AST_node* parse_type_name() {
-	
+	int found_specifier = 0;
+	AST_node* node = malloc(sizeof(AST_node));
+	node->type = AST_Type_TYPE_NAME;
+	if (!is_specifier_qualifier(current_token()))
+		error_unexpected_token(current_token(), Token_Type_VOID); // TODO: expect multiple types of tokens
+	while (is_specifier_qualifier(current_token())) {
+		Token tok = current_token();
+		if (is_type_qualifier(tok)) {
+			if (tok.type == Token_Type_CONST) {
+				node->type_name.is_const = 1;
+			} else if (tok.type == Token_Type_VOLATILE) {
+				node->type_name.is_volatile = 1;
+			}
+		} else {
+			node->type_name.specifier = tok;
+			found_specifier = 1;
+		}
+		blind_accept();
+	}
+	if (found_specifier == 0) {
+		error_unexpected_token(current_token(), Token_Type_VOID);
+	}
+	return node;
+	// ill worry about abstract declarators later fml
 }
 
 int is_type_name(Token tok) {
 	// TODO: this will need to check typedef'd types eventually
 	// this should be first(type_name)
 	Token_Type t = tok.type;
-	return (t == Token_Type_VOID ||
-			t == Token_Type_CHAR ||
-			t == Token_Type_SHORT ||
-			t == Token_Type_INT ||
-			t == Token_Type_LONG ||
-			t == Token_Type_FLOAT ||
-			t == Token_Type_DOUBLE ||
-			t == Token_Type_SIGNED ||
-			t == Token_Type_UNSIGNED ||
-
+	return is_type_specifier(tok) || is_type_qualifier(tok) ||
 			t == Token_Type_STRUCT ||
 			t == Token_Type_UNION ||
-
-			t == Token_Type_ENUM ||
-
-			t == Token_Type_CONST ||
-			t == Token_Type_VOLATILE);
+			t == Token_Type_ENUM;
 }
 
 AST_node* parse_cast_expression() {
 	if (current_token().type == Token_Type_O_PAREN && is_type_name(peek_token())) {
 		AST_node* node = malloc(sizeof(AST_node));
+		node->type = AST_Type_CAST_EXPRESSION;
 		expect(Token_Type_O_PAREN);
 		node->cast_expression.type = parse_type_name();
 		expect(Token_Type_C_PAREN);
 		node->cast_expression.right = parse_primary_expression();
+		return node;
 	} else {
 		return parse_primary_expression();
 	}
@@ -711,6 +767,25 @@ void print_ast(AST_node* node, int depth) {
 		print_ast(node->conditional_expression.condition, depth + 1);
 		print_ast(node->conditional_expression.left, depth + 1);
 		print_ast(node->conditional_expression.right, depth + 1);
+	} else if (node->type == AST_Type_CAST_EXPRESSION) {
+		printf("Node: CAST_EXPRESSION\n");
+		print_ast(node->cast_expression.type, depth + 1);
+		print_ast(node->cast_expression.right, depth + 1);
+	} else if (node->type == AST_Type_TYPE_NAME) {
+		printf("Node: TYPE_NAME\n");
+		if (node->type_name.is_const) {
+			for (int i = 0; i < depth; i++)
+				printf("    ");
+			printf("    CONST\n");
+		}
+		if (node->type_name.is_volatile) {
+			for (int i = 0; i < depth; i++)
+				printf("    ");
+			printf("    VOLATILE\n");
+		}
+		for (int i = 0; i < depth; i++)
+			printf("    ");
+		printf("    %s\n", Token_Type_to_str(node->type_name.specifier.type));
 	}
 }
 
