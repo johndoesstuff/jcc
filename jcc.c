@@ -21,7 +21,8 @@
 
 enum {
 	Token_Type_IDENTIFIER,
-	Token_Type_NUMBER,
+	Token_Type_INT_CONST,
+	Token_Type_FLOAT_CONST,
 	Token_Type_STRING,
 	Token_Type_CHAR,
 	Token_Type_O_PAREN,
@@ -85,7 +86,8 @@ enum {
 
 char* Token_Type_to_str(Token_Type t) {
 	if (t == Token_Type_IDENTIFIER) return "IDENTIFIER";
-	else if (t == Token_Type_NUMBER) return "NUMBER";
+	else if (t == Token_Type_INT_CONST) return "INT_CONST";
+	else if (t == Token_Type_FLOAT_CONST) return "FLOAT_CONST";
 	else if (t == Token_Type_STRING) return "STRING";
 	else if (t == Token_Type_CHAR) return "CHAR";
 	else if (t == Token_Type_O_PAREN) return "OPEN PARENTHESIS";
@@ -164,6 +166,11 @@ void error_unexpected_token(Token tok, Token_Type t) {
 
 void error_internal(const char* msg) {
 	fprintf(stderr, "Fatal internal error: %s\n", msg);
+	exit(1);
+}
+
+void error_invalid_type(const char* msg) {
+	fprintf(stderr, "Type Error: %s\n", msg);
 	exit(1);
 }
 
@@ -336,7 +343,16 @@ Token next_token() {
 				ch = next_char();
 				*(tok_text++) = ch;
 			}
-			tok.type = Token_Type_NUMBER;
+			tok.type = Token_Type_INT_CONST;
+			if (peek_char() == '.') {
+				ch = next_char();
+				*(tok_text++) = ch;
+				while (is_num(peek_char())) {
+					ch = next_char();
+					*(tok_text++) = ch;
+				}
+				tok.type = Token_Type_FLOAT_CONST;
+			}
 		} else if (ch == '(') {
 			tok.type = Token_Type_O_PAREN;
 		} else if (ch == ')') {
@@ -500,6 +516,31 @@ Token current_token() {
  */
 
 enum {
+	Type_VOID,
+	Type_CHAR,
+	Type_SHORT,
+	Type_INT,
+	Type_LONG,
+	Type_FLOAT,
+	Type_DOUBLE,
+	// signed and unsigned decay to int
+} typedef Type_Specifier;
+
+struct Type {
+	int is_const;
+	int is_volatile;
+	int is_signed;
+	Type_Specifier specifier;
+} typedef Type;
+
+Type* make_type(Type_Specifier s) {
+	Type* t = malloc(sizeof(Type));
+	t->specifier = s;
+	t->is_signed = 1;
+	return t;
+}
+
+enum {
 	AST_Type_TERMINAL,
 	AST_Type_TYPE_NAME,
 	AST_Type_CAST_EXPRESSION,
@@ -517,12 +558,13 @@ enum {
 } typedef AST_Type;
 
 struct AST_node {
-	AST_Type type;
+	AST_Type ast_type;
+	Type* type;
 	union {
 		// TODO: condense binary ops into union
 		struct {
 			struct AST_node* left;
-			struct AST_node* op;
+			Token op;
 			struct AST_node* right;
 		} binary_expression;
 		struct {
@@ -531,14 +573,8 @@ struct AST_node {
 			struct AST_node* right;
 		} conditional_expression;
 		struct {
-			struct AST_node* type;
 			struct AST_node* right;
 		} cast_expression;
-		struct {
-			int is_const;
-			int is_volatile;
-			Token specifier;
-		} type_name;
 		struct {
 			Token value;
 		} terminal;
@@ -581,7 +617,7 @@ char* AST_Type_to_str(AST_Type t) {
 // return an AST_node terminal of current token regardless of type
 AST_node* blind_accept() {
 	AST_node* node = malloc(sizeof(AST_node));
-	node->type = AST_Type_TERMINAL;
+	node->ast_type = AST_Type_TERMINAL;
 	node->terminal.value = current_token();
 	next_token();
 	return node;
@@ -591,7 +627,7 @@ AST_node* blind_accept() {
 AST_node* accept(Token_Type t) {
 	if (t == current_token().type) {
 		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_TERMINAL;
+		node->ast_type = AST_Type_TERMINAL;
 		node->terminal.value = current_token();
 		next_token();
 		return node;
@@ -616,8 +652,12 @@ AST_node* parse_primary_expression() {
 		expect(Token_Type_O_PAREN);
 		left = parse_conditional_expression(); // TODO: actually parse expression
 		expect(Token_Type_C_PAREN);
-	} else if (current_token().type == Token_Type_NUMBER) { // TODO: parse general constants and identifiers
-		left = expect(Token_Type_NUMBER);
+	} else if (current_token().type == Token_Type_INT_CONST) {
+		left = expect(Token_Type_INT_CONST);
+		left->type = make_type(Type_INT);
+	} else if (current_token().type == Token_Type_FLOAT_CONST) {
+		left = expect(Token_Type_FLOAT_CONST);
+		left->type = make_type(Type_DOUBLE);
 	}
 	return left;
 }
@@ -644,22 +684,40 @@ int is_specifier_qualifier(Token tok) {
 	return is_type_specifier(tok) || is_type_qualifier(tok);
 }
 
-AST_node* parse_type_name() {
+Type_Specifier token_to_specifier(Token tok) {
+	Token_Type t = tok.type;
+	if (t == Token_Type_VOID) return Type_VOID;
+	else if (t == Token_Type_CHAR) return Type_CHAR;
+	else if (t == Token_Type_SHORT) return Type_SHORT;
+	else if (t == Token_Type_INT) return Type_INT;
+	else if (t == Token_Type_LONG) return Type_LONG;
+	else if (t == Token_Type_FLOAT) return Type_FLOAT;
+	else if (t == Token_Type_DOUBLE) return Type_DOUBLE;
+	error_internal("Couldn't convert token to specifier..");
+}
+
+Type* parse_type_name() {
 	int found_specifier = 0;
-	AST_node* node = malloc(sizeof(AST_node));
-	node->type = AST_Type_TYPE_NAME;
+	Type* node = malloc(sizeof(AST_node));
+	node->is_signed = 1;
 	if (!is_specifier_qualifier(current_token()))
 		error_unexpected_token(current_token(), Token_Type_VOID); // TODO: expect multiple types of tokens
 	while (is_specifier_qualifier(current_token())) {
 		Token tok = current_token();
 		if (is_type_qualifier(tok)) {
 			if (tok.type == Token_Type_CONST) {
-				node->type_name.is_const = 1;
+				node->is_const = 1;
 			} else if (tok.type == Token_Type_VOLATILE) {
-				node->type_name.is_volatile = 1;
+				node->is_volatile = 1;
 			}
 		} else {
-			node->type_name.specifier = tok;
+			if (tok.type == Token_Type_SIGNED) {
+				if (found_specifier == 0) node->specifier = Type_INT;
+				node->is_signed = 1;
+			} else if (tok.type == Token_Type_UNSIGNED) {
+				if (found_specifier == 0) node->specifier = Type_INT;
+				node->is_signed = 0;
+			} else node->specifier = token_to_specifier(tok);
 			found_specifier = 1;
 		}
 		blind_accept();
@@ -684,9 +742,9 @@ int is_type_name(Token tok) {
 AST_node* parse_cast_expression() {
 	if (current_token().type == Token_Type_O_PAREN && is_type_name(peek_token())) {
 		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_CAST_EXPRESSION;
+		node->ast_type = AST_Type_CAST_EXPRESSION;
 		expect(Token_Type_O_PAREN);
-		node->cast_expression.type = parse_type_name();
+		node->type = parse_type_name();
 		expect(Token_Type_C_PAREN);
 		node->cast_expression.right = parse_primary_expression();
 		return node;
@@ -695,81 +753,143 @@ AST_node* parse_cast_expression() {
 	}
 }
 
+Type* binary_type_coercion_arithmetic(Type* a, Type* b) {
+	Type* type = make_type(Type_INT);
+	type->is_signed = a->is_signed & b->is_signed;
+	if (a->specifier == Type_LONG || b->specifier == Type_LONG) type->specifier = Type_LONG;
+	if (a->specifier == Type_FLOAT || b->specifier == Type_FLOAT) type->specifier = Type_FLOAT;
+	if (a->specifier == Type_DOUBLE || b->specifier == Type_DOUBLE) type->specifier = Type_DOUBLE;
+	return type;
+}
+
+Type* binary_type_coercion_shift(Type* a, Type* b) {
+	Type* type = make_type(Type_INT);
+	type->is_signed = a->is_signed;
+	if (a->specifier == Type_LONG || b->specifier == Type_LONG) type->specifier = Type_LONG;
+	if (a->specifier == Type_FLOAT || b->specifier == Type_FLOAT) error_invalid_type("Invalid type for shift operator");
+	if (a->specifier == Type_DOUBLE || b->specifier == Type_DOUBLE) error_invalid_type("Invalid type for shift operator");
+	return type;
+}
+
+Type* binary_type_coercion_relational(Type* a, Type* b) {
+	Type* type = make_type(Type_INT);
+	return type;
+}
+
+Type* binary_type_coercion_bitwise(Type* a, Type* b) {
+	Type* type = make_type(Type_INT);
+	type->is_signed = a->is_signed & b->is_signed;
+	if (a->specifier == Type_LONG || b->specifier == Type_LONG) type->specifier = Type_LONG;
+	if (a->specifier == Type_FLOAT || b->specifier == Type_FLOAT) error_invalid_type("Invalid type for shift operator");
+	if (a->specifier == Type_DOUBLE || b->specifier == Type_DOUBLE) error_invalid_type("Invalid type for shift operator");
+	return type;
+}
+
+Type* binary_type_coercion_logical(Type* a, Type* b) {
+	Type* type = make_type(Type_INT);
+	return type;
+}
+
 // all binary ops use the exact same logic
-#define PARSE_BINARY_EXPRESSION(NAME, OPERATOR, AST, NEXT) AST_node* NAME() { \
+#define PARSE_BINARY_EXPRESSION(NAME, OPERATOR, AST, NEXT, TYPE) AST_node* NAME() { \
 	AST_node* left = NEXT(); \
 	while (current_token().type == OPERATOR) { \
 		AST_node* node = malloc(sizeof(AST_node)); \
-		node->type = AST; \
+		node->ast_type = AST; \
 		node->binary_expression.left = left; \
-		node->binary_expression.op = expect(OPERATOR); \
+		node->binary_expression.op = current_token(); \
+		expect(OPERATOR); \
 		node->binary_expression.right = NEXT(); \
+		node->type = TYPE(node->binary_expression.left->type, node->binary_expression.right->type); \
 		left = node; \
 	} \
 	return left; \
 }
 
-PARSE_BINARY_EXPRESSION(parse_multiplicative_expression, Token_Type_MULTIPLICATIVE, AST_Type_MULTIPLICATIVE_EXPRESSION, parse_cast_expression)
-PARSE_BINARY_EXPRESSION(parse_additive_expression, Token_Type_ADDITIVE, AST_Type_ADDITIVE_EXPRESSION, parse_multiplicative_expression)
-PARSE_BINARY_EXPRESSION(parse_shift_expression, Token_Type_SHIFT, AST_Type_SHIFT_EXPRESSION, parse_additive_expression)
-PARSE_BINARY_EXPRESSION(parse_relational_expression, Token_Type_RELATIONAL, AST_Type_RELATIONAL_EXPRESSION, parse_shift_expression)
-PARSE_BINARY_EXPRESSION(parse_equality_expression, Token_Type_EQUALITY, AST_Type_EQUALITY_EXPRESSION, parse_relational_expression)
-PARSE_BINARY_EXPRESSION(parse_and_expression, Token_Type_AND, AST_Type_AND_EXPRESSION, parse_equality_expression)
-PARSE_BINARY_EXPRESSION(parse_exclusive_or_expression, Token_Type_EXCLUSIVE_OR, AST_Type_EXCLUSIVE_OR_EXPRESSION, parse_and_expression)
-PARSE_BINARY_EXPRESSION(parse_inclusive_or_expression, Token_Type_INCLUSIVE_OR, AST_Type_INCLUSIVE_OR_EXPRESSION, parse_exclusive_or_expression)
-PARSE_BINARY_EXPRESSION(parse_logical_and_expression, Token_Type_LOGICAL_AND, AST_Type_LOGICAL_AND_EXPRESSION, parse_inclusive_or_expression)
-PARSE_BINARY_EXPRESSION(parse_logical_or_expression, Token_Type_LOGICAL_OR, AST_Type_LOGICAL_OR_EXPRESSION, parse_logical_and_expression)
+PARSE_BINARY_EXPRESSION(parse_multiplicative_expression, Token_Type_MULTIPLICATIVE,
+		AST_Type_MULTIPLICATIVE_EXPRESSION, parse_cast_expression, binary_type_coercion_arithmetic)
+PARSE_BINARY_EXPRESSION(parse_additive_expression, Token_Type_ADDITIVE,
+		AST_Type_ADDITIVE_EXPRESSION, parse_multiplicative_expression, binary_type_coercion_arithmetic)
+PARSE_BINARY_EXPRESSION(parse_shift_expression, Token_Type_SHIFT,
+		AST_Type_SHIFT_EXPRESSION, parse_additive_expression, binary_type_coercion_shift)
+PARSE_BINARY_EXPRESSION(parse_relational_expression, Token_Type_RELATIONAL,
+		AST_Type_RELATIONAL_EXPRESSION, parse_shift_expression, binary_type_coercion_relational)
+PARSE_BINARY_EXPRESSION(parse_equality_expression, Token_Type_EQUALITY,
+		AST_Type_EQUALITY_EXPRESSION, parse_relational_expression, binary_type_coercion_relational)
+PARSE_BINARY_EXPRESSION(parse_and_expression, Token_Type_AND,
+		AST_Type_AND_EXPRESSION, parse_equality_expression, binary_type_coercion_bitwise)
+PARSE_BINARY_EXPRESSION(parse_exclusive_or_expression, Token_Type_EXCLUSIVE_OR,
+		AST_Type_EXCLUSIVE_OR_EXPRESSION, parse_and_expression, binary_type_coercion_bitwise)
+PARSE_BINARY_EXPRESSION(parse_inclusive_or_expression, Token_Type_INCLUSIVE_OR,
+		AST_Type_INCLUSIVE_OR_EXPRESSION, parse_exclusive_or_expression, binary_type_coercion_bitwise)
+PARSE_BINARY_EXPRESSION(parse_logical_and_expression, Token_Type_LOGICAL_AND,
+		AST_Type_LOGICAL_AND_EXPRESSION, parse_inclusive_or_expression, binary_type_coercion_logical)
+PARSE_BINARY_EXPRESSION(parse_logical_or_expression, Token_Type_LOGICAL_OR,
+		AST_Type_LOGICAL_OR_EXPRESSION, parse_logical_and_expression, binary_type_coercion_logical)
 
 AST_node* parse_conditional_expression() {
 	AST_node* left = parse_logical_or_expression();
 	if (current_token().type == Token_Type_CONDITIONAL) {
 		AST_node* node = malloc(sizeof(AST_node));
-		node->type = AST_Type_CONDITIONAL_EXPRESSION;
+		node->ast_type = AST_Type_CONDITIONAL_EXPRESSION;
 		node->conditional_expression.condition = left;
 		expect(Token_Type_CONDITIONAL);
 		node->conditional_expression.left = parse_conditional_expression(); // TODO: this should be expression
 		expect(Token_Type_COLON);
 		node->conditional_expression.right = parse_conditional_expression();
+		node->type = binary_type_coercion_arithmetic(node->conditional_expression.left->type, node->conditional_expression.right->type);
 		return node;
 	}
 	return left;
 }
 
 // for debugging purposes
+void print_token(Token tok, int depth) {
+	for (int i = 0; i < depth; i++)
+		printf("    ");
+	printf("Token: %s of type %s\n", tok.text, Token_Type_to_str(tok.type));
+}
+
+void print_type(Type* type, int depth) {
+	for (int i = 0; i < depth; i++)
+		printf("    ");
+	if (type->is_const) printf("CONST ");
+	if (type->is_volatile) printf("VOLATILE ");
+	if (type->is_signed == 0) printf("UNSIGNED ");
+
+	if (type->specifier == Type_VOID) printf("VOID");
+	else if (type->specifier == Type_CHAR) printf("CHAR");
+	else if (type->specifier == Type_SHORT) printf("SHORT");
+	else if (type->specifier == Type_INT) printf("INT");
+	else if (type->specifier == Type_LONG) printf("LONG");
+	else if (type->specifier == Type_FLOAT) printf("FLOAT");
+	else if (type->specifier == Type_DOUBLE) printf("DOUBLE");
+	printf("\n");
+}
+
 void print_ast(AST_node* node, int depth) {
 	for (int i = 0; i < depth; i++)
 		printf("    ");
-	if (node->type == AST_Type_TERMINAL) {
-		printf("Token %s of type %s\n", node->terminal.value.text, Token_Type_to_str(node->terminal.value.type));
-	} else if (AST_is_binary(node->type)) {
-		printf("Node: %s\n", AST_Type_to_str(node->type));
+	if (node->ast_type == AST_Type_TERMINAL) {
+		printf("Terminal: \n");
+		print_token(node->terminal.value, depth + 1);
+		print_type(node->type, depth + 1);
+	} else if (AST_is_binary(node->ast_type)) {
+		printf("Node: %s\n", AST_Type_to_str(node->ast_type));
 		print_ast(node->binary_expression.left, depth + 1);
-		print_ast(node->binary_expression.op, depth + 1);
+		print_token(node->binary_expression.op, depth + 1);
 		print_ast(node->binary_expression.right, depth + 1);
-	} else if (node->type == AST_Type_CONDITIONAL_EXPRESSION) {
+		print_type(node->type, depth + 1);
+	} else if (node->ast_type == AST_Type_CONDITIONAL_EXPRESSION) {
 		printf("Node: CONDITIONAL_EXPRESSION\n");
 		print_ast(node->conditional_expression.condition, depth + 1);
 		print_ast(node->conditional_expression.left, depth + 1);
 		print_ast(node->conditional_expression.right, depth + 1);
-	} else if (node->type == AST_Type_CAST_EXPRESSION) {
+		print_type(node->type, depth + 1);
+	} else if (node->ast_type == AST_Type_CAST_EXPRESSION) {
 		printf("Node: CAST_EXPRESSION\n");
-		print_ast(node->cast_expression.type, depth + 1);
+		print_type(node->type, depth + 1);
 		print_ast(node->cast_expression.right, depth + 1);
-	} else if (node->type == AST_Type_TYPE_NAME) {
-		printf("Node: TYPE_NAME\n");
-		if (node->type_name.is_const) {
-			for (int i = 0; i < depth; i++)
-				printf("    ");
-			printf("    CONST\n");
-		}
-		if (node->type_name.is_volatile) {
-			for (int i = 0; i < depth; i++)
-				printf("    ");
-			printf("    VOLATILE\n");
-		}
-		for (int i = 0; i < depth; i++)
-			printf("    ");
-		printf("    %s\n", Token_Type_to_str(node->type_name.specifier.type));
 	}
 }
 
@@ -1096,18 +1216,18 @@ int short_circuits(const char* op) {
 
 void generate_code(AST_node* node) {
 	// simple approach: move terminals into rax
-	if (node->type == AST_Type_TERMINAL) {
+	if (node->ast_type == AST_Type_TERMINAL) {
 		// TODO: typechecking
 		int64_t val = atoi(node->terminal.value.text);
 		emit_mov_reg_imm(Register_RAX, val);
 		return;
-	} else if (AST_is_binary(node->type)) {
+	} else if (AST_is_binary(node->ast_type)) {
 		// generate code for left into rax, push, generate code for right into rax,
 		// pop into rcx and operate
 		AST_node* left  = node->binary_expression.left;
-		AST_node* op    = node->binary_expression.op;
+		Token op    = node->binary_expression.op;
 		AST_node* right = node->binary_expression.right;
-		char* op_text = op->terminal.value.text;
+		char* op_text = op.text;
 
 		// we can only do l/r codegen for non short-circuiting ops
 		if (!short_circuits(op_text)) {
@@ -1243,7 +1363,7 @@ void generate_code(AST_node* node) {
 			snprintf(buf, sizeof(buf), buf, op_text);
 			error_internal(buf);
 		}
-	} else if (node->type == AST_Type_CONDITIONAL_EXPRESSION) {
+	} else if (node->ast_type == AST_Type_CONDITIONAL_EXPRESSION) {
 		Label false_label = make_label();
 		Label end_label = make_label();
 
