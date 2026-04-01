@@ -627,11 +627,6 @@ int is_type_qualifier(Token tok) {
 	return t == Token_Type_CONST || t == Token_Type_VOLATILE;
 }
 
-AST_node* parse_type_qualifier() {
-	if (is_type_qualifier(current_token())) return blind_accept();
-	else error_unexpected_token(current_token(), Token_Type_CONST); // TODO: expect multiple types of tokens
-}
-
 int is_type_specifier(Token tok) {
 	Token_Type t = tok.type;
 	return t == Token_Type_VOID || 
@@ -645,19 +640,8 @@ int is_type_specifier(Token tok) {
 		t == Token_Type_UNSIGNED;
 }
 
-AST_node* parse_type_specifier() {
-	if (is_type_specifier(current_token())) return blind_accept();
-	else error_unexpected_token(current_token(), Token_Type_VOID); // TODO: expect multiple types of tokens
-}
-
 int is_specifier_qualifier(Token tok) {
-	Token_Type t = tok.type;
 	return is_type_specifier(tok) || is_type_qualifier(tok);
-}
-
-AST_node* parse_specifier_qualifier() {
-	if (is_specifier_qualifier(current_token())) return blind_accept();
-	else error_unexpected_token(current_token(), Token_Type_VOID);
 }
 
 AST_node* parse_type_name() {
@@ -743,7 +727,7 @@ AST_node* parse_conditional_expression() {
 		node->type = AST_Type_CONDITIONAL_EXPRESSION;
 		node->conditional_expression.condition = left;
 		expect(Token_Type_CONDITIONAL);
-		node->conditional_expression.left = parse_logical_and_expression(); // TODO: this should be expression
+		node->conditional_expression.left = parse_conditional_expression(); // TODO: this should be expression
 		expect(Token_Type_COLON);
 		node->conditional_expression.right = parse_conditional_expression();
 		return node;
@@ -957,7 +941,6 @@ void mark_label(Label* label) {
 }
 
 void resolve_labels() {
-	uint64_t save_byte;
 	for (int i = 0; i < resolution_count; i++) {
 		set_i32(resolution_addresses[i], labels[resolution_ids[i]].offset - (resolution_addresses[i] + 4));
 	}
