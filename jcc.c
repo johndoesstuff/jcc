@@ -905,43 +905,53 @@ void print_ast(AST_node* node, int depth) {
  */
 
 FILE* out_file;
-uint64_t current_byte = 0;
+uint64_t file_byte = 0;
+
+unsigned char rodata_buf[4096];
+uint64_t rodata_byte = 0;
+unsigned char text_buf[65536];
+uint64_t text_byte = 0;
 
 // append a byte to output file
-void emit_byte(unsigned char byte) {
+void emit_byte_file(unsigned char byte) {
 	putc(byte, out_file);
-	current_byte++;
+	file_byte++;
+}
+void emit_byte(unsigned char byte, unsigned char* buffer, uint64_t* buffer_ptr) {
+	buffer[(*buffer_ptr)++] = byte;
 }
 
-// set byte at address in file
-void set_byte(uint64_t addr, unsigned char byte) {
-	fseek(out_file, (long)addr, SEEK_SET);
-	putc(byte, out_file);
-	fseek(out_file, 0, SEEK_END);
+void emit_byte_text(unsigned char byte) {
+	emit_byte(byte, text_buf, &text_byte);
+}
+
+void emit_byte_rodata(unsigned char byte) {
+	emit_byte(byte, rodata_buf, &rodata_byte);
+}
+
+// set byte at address in buffer
+void set_byte(uint64_t addr, unsigned char byte, unsigned char* buffer) {
+	buffer[addr] = byte;
 }
 
 // set an i32 at address in file
-void set_i32(uint64_t addr, int32_t data) {
-	fseek(out_file, (long)addr, SEEK_SET);
-	putc(data & 0xff, out_file);
-	putc((data >> 8) & 0xff, out_file);
-	putc((data >> 16) & 0xff, out_file);
-	putc((data >> 24) & 0xff, out_file);
-	fseek(out_file, 0, SEEK_END);
+void set_i32(uint64_t addr, int32_t data, unsigned char* buffer) {
+	buffer[addr] = data & 0xff;
+	buffer[addr + 1] = (data >> 8) & 0xff;
+	buffer[addr + 2] = (data >> 16) & 0xff;
+	buffer[addr + 3] = (data >> 24) & 0xff;
 }
 
 // set an i64 at address in file
-void set_i64(uint64_t addr, int64_t data) {
-	fseek(out_file, (long)addr, SEEK_SET);
-	putc(data & 0xff, out_file);
-	putc((data >> 8) & 0xff, out_file);
-	putc((data >> 16) & 0xff, out_file);
-	putc((data >> 24) & 0xff, out_file);
-	putc((data >> 32) & 0xff, out_file);
-	putc((data >> 40) & 0xff, out_file);
-	putc((data >> 48) & 0xff, out_file);
-	putc((data >> 56) & 0xff, out_file);
-	fseek(out_file, 0, SEEK_END);
+void set_i64(uint64_t addr, int64_t data, unsigned char* buffer) {
+	buffer[addr] = data & 0xff;
+	buffer[addr + 1] = (data >> 8) & 0xff;
+	buffer[addr + 2] = (data >> 16) & 0xff;
+	buffer[addr + 3] = (data >> 24) & 0xff;
+	buffer[addr + 4] = (data >> 32) & 0xff;
+	buffer[addr + 5] = (data >> 40) & 0xff;
+	buffer[addr + 6] = (data >> 48) & 0xff;
+	buffer[addr + 7] = (data >> 56) & 0xff;
 }
 
 typedef struct {
@@ -973,6 +983,10 @@ typedef struct {
 } Elf64_Program_Header;
 
 void write_elf_header() {
+	int PF_X = 0x1;
+	int PF_W = 0x2;
+	int PF_R = 0x4;
+
 	uint64_t start_address = 0x8000000;
 
 	Elf64_Header header;
@@ -994,38 +1008,54 @@ void write_elf_header() {
 	header.e_flags     = 0x00; // no fucking idea
 	header.e_ehsize    = 0x40; // elf header size
 	header.e_phentsize = 0x38; // program header size
-	header.e_phnum     = 0x01; // # of program headers
-	header.e_shentsize = 0x01; // section header size
+	header.e_phnum     = 0x02; // # of program headers
+	header.e_shentsize = 0x40; // section header size
 	header.e_shnum     = 0x04; // # of section headers
 	header.e_shstrndx  = 0x03; // index of names section in table
 
-	header.e_entry     = start_address + header.e_phoff + 0x40; // (align to 0x40 instead of 0x38)
+	header.e_entry     = start_address + header.e_phoff + 2 * header.e_phentsize + rodata_byte;
 
 	int header_bytes = sizeof(Elf64_Header);
 	for (int i = 0; i < header_bytes; i++)
-		emit_byte(((unsigned char*)&header)[i]);
+		emit_byte_file(((unsigned char*)&header)[i]);
 
-	// redundant but ensure proper padding for offsets
-	while (current_byte < header.e_phoff)
-		emit_byte(0x00);
-
-	Elf64_Program_Header pheader;
-	
-	pheader.p_type     = 0x01; // load segment to memory
-	pheader.p_offset   = 0x00; // no offset
-	pheader.p_vaddr    = start_address;
-	pheader.p_paddr    = start_address;
-	pheader.p_filesz   = 0xA0; // no idea
-	pheader.p_memsz    = 0xA0; // no idea
-	pheader.p_flags    = 0x05; // r + x
-	pheader.p_align    = 0x200000; // also no idea
-
+	// program headers
 	int pheader_bytes = sizeof(Elf64_Program_Header);
-	for (int i = 0; i < pheader_bytes; i++)
-		emit_byte(((unsigned char*)&pheader)[i]);
 
-	while (current_byte < header.e_entry - start_address)
-		emit_byte(0x00);
+	Elf64_Program_Header rodata_header;
+	
+	rodata_header.p_type     = 0x01; // load segment to memory
+	rodata_header.p_offset   = header.e_ehsize + pheader_bytes * 2; // data starts after next header
+	rodata_header.p_vaddr    = rodata_header.p_offset + start_address;
+	rodata_header.p_paddr    = rodata_header.p_vaddr;
+	rodata_header.p_filesz   = rodata_byte;
+	rodata_header.p_memsz    = rodata_byte;
+	rodata_header.p_flags    = PF_R;
+	rodata_header.p_align    = 0x1000; // also no idea
+
+
+	Elf64_Program_Header text_header;
+	
+	text_header.p_type     = 0x01; // load segment to memory
+	text_header.p_offset   = rodata_header.p_offset + rodata_byte; // text starts after rodata
+	text_header.p_vaddr    = text_header.p_offset + start_address;
+	text_header.p_paddr    = text_header.p_vaddr;
+	text_header.p_filesz   = text_byte;
+	text_header.p_memsz    = text_byte;
+	text_header.p_flags    = PF_R | PF_X;
+	text_header.p_align    = 0x1000; // also no idea
+
+	// emit program headers
+	for (int i = 0; i < pheader_bytes; i++)
+		emit_byte_file(((unsigned char*)&rodata_header)[i]);
+
+	for (int i = 0; i < pheader_bytes; i++)
+		emit_byte_file(((unsigned char*)&text_header)[i]);
+
+	// just to make sure we are in the correct location
+	while (file_byte < header.e_entry - start_address)
+		emit_byte_file(0x00);
+
 }
 
 /*
@@ -1056,13 +1086,13 @@ Label make_label() {
 }
 
 void mark_label(Label* label) {
-	label->offset = current_byte;
-	labels[label->id].offset = current_byte;
+	label->offset = text_byte;
+	labels[label->id].offset = text_byte;
 }
 
 void resolve_labels() {
 	for (int i = 0; i < resolution_count; i++) {
-		set_i32(resolution_addresses[i], labels[resolution_ids[i]].offset - (resolution_addresses[i] + 4));
+		set_i32(resolution_addresses[i], labels[resolution_ids[i]].offset - (resolution_addresses[i] + 4), text_buf);
 	}
 }
 
@@ -1090,6 +1120,25 @@ enum {
 	Register_R13, // preserved
 	Register_R14, // preserved
 	Register_R15, // preserved
+				
+	// stupid chud floating point registers
+	Register_XMM0,
+	Register_XMM1,
+	Register_XMM2,
+	Register_XMM3,
+	Register_XMM4,
+	Register_XMM5,
+	Register_XMM6,
+	Register_XMM7,
+
+	Register_XMM8,
+	Register_XMM9,
+	Register_XMM10,
+	Register_XMM11,
+	Register_XMM12,
+	Register_XMM13,
+	Register_XMM14,
+	Register_XMM15,
 } typedef Codegen_Register;
 
 // helperes for dealing with register enums:
@@ -1109,55 +1158,55 @@ int reg_canon(Codegen_Register reg) {
 void emit_mov_reg_imm(Codegen_Register reg, int64_t val) {
 	// mov [reg] (32bit -- TODO: typechecking)
 	if (reg_is_64bit(reg)) {
-		emit_byte(0x49);
+		emit_byte_text(0x49);
 	} else {
-		emit_byte(0x48);
+		emit_byte_text(0x48);
 	}
-	emit_byte(0xc7);
-	emit_byte(0xc0 + reg_canon(reg));
+	emit_byte_text(0xc7);
+	emit_byte_text(0xc0 + reg_canon(reg));
 	// little endian
-	emit_byte(val & 0xff);
-	emit_byte((val >> 8) & 0xff);
-	emit_byte((val >> 16) & 0xff);
-	emit_byte((val >> 24) & 0xff);
+	emit_byte_text(val & 0xff);
+	emit_byte_text((val >> 8) & 0xff);
+	emit_byte_text((val >> 16) & 0xff);
+	emit_byte_text((val >> 24) & 0xff);
 }
 
 void emit_push_reg(Codegen_Register reg) {
 	if (reg_is_64bit(reg)) {
-		emit_byte(0x41);
+		emit_byte_text(0x41);
 	}
-	emit_byte(0x50 + reg_canon(reg));
+	emit_byte_text(0x50 + reg_canon(reg));
 }
 
 void emit_pop_reg(Codegen_Register reg) {
 	if (reg_is_64bit(reg)) {
-		emit_byte(0x41);
+		emit_byte_text(0x41);
 	}
-	emit_byte(0x58 + reg_canon(reg));
+	emit_byte_text(0x58 + reg_canon(reg));
 }
 
 void emit_syscall() {
-	emit_byte(0x0f); emit_byte(0x05);
+	emit_byte_text(0x0f); emit_byte_text(0x05);
 }
 
 void emit_add_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
 	if (reg_is_64bit(reg2)) {
-		emit_byte(0x4c + reg_is_64bit(reg1));
+		emit_byte_text(0x4c + reg_is_64bit(reg1));
 	} else {
-		emit_byte(0x48 + reg_is_64bit(reg1));
+		emit_byte_text(0x48 + reg_is_64bit(reg1));
 	}
-	emit_byte(0x01);
-	emit_byte(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
+	emit_byte_text(0x01);
+	emit_byte_text(0xc0 + (reg_canon(reg2) << 3) + reg_canon(reg1));
 }
 
 void emit_sub_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
 	if (reg_is_64bit(reg2)) {
-		emit_byte(0x4c + reg_is_64bit(reg1));
+		emit_byte_text(0x4c + reg_is_64bit(reg1));
 	} else {
-		emit_byte(0x48 + reg_is_64bit(reg1));
+		emit_byte_text(0x48 + reg_is_64bit(reg1));
 	}
-	emit_byte(0x29);
-	emit_byte(0xc0 + (reg_canon(reg2) >> 3) + reg_canon(reg1));
+	emit_byte_text(0x29);
+	emit_byte_text(0xc0 + (reg_canon(reg2) >> 3) + reg_canon(reg1));
 }
 
 void emit_xchg_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
@@ -1170,43 +1219,43 @@ void emit_xchg_reg_reg(Codegen_Register reg1, Codegen_Register reg2) {
 	}
 	// xchg rax has special encoding
 	if (reg1 == Register_RAX) {
-		emit_byte(0x48 + reg_is_64bit(reg1));
-		emit_byte(0x90 + reg_canon(reg2));
+		emit_byte_text(0x48 + reg_is_64bit(reg1));
+		emit_byte_text(0x90 + reg_canon(reg2));
 	} else {
-		emit_byte(0x48 + reg_is_64bit(reg1) + (reg_is_64bit(reg2) >> 3));
-		emit_byte(0x87);
-		emit_byte(0xc0 + (reg_canon(reg2) >> 3) + reg_canon(reg1));
+		emit_byte_text(0x48 + reg_is_64bit(reg1) + (reg_is_64bit(reg2) >> 3));
+		emit_byte_text(0x87);
+		emit_byte_text(0xc0 + (reg_canon(reg2) >> 3) + reg_canon(reg1));
 	}
 }
 
 void emit_cqo() {
-	emit_byte(0x48);
-	emit_byte(0x99);
+	emit_byte_text(0x48);
+	emit_byte_text(0x99);
 }
 
 void emit_label(Label target) {
 	// 32bit relative addr, resolve later
-	resolution_addresses[resolution_count] = current_byte;
+	resolution_addresses[resolution_count] = text_byte;
 	resolution_ids[resolution_count] = target.id;
 	resolution_count++;
 	// unknown addr for now
-	emit_byte(0x00); emit_byte(0x00); emit_byte(0x00); emit_byte(0x00);
+	emit_byte_text(0x00); emit_byte_text(0x00); emit_byte_text(0x00); emit_byte_text(0x00);
 }
 
 void emit_jz(Label target) {
-	emit_byte(0x0f);
-	emit_byte(0x84);
+	emit_byte_text(0x0f);
+	emit_byte_text(0x84);
 	emit_label(target);
 }
 
 void emit_jnz(Label target) {
-	emit_byte(0x0f);
-	emit_byte(0x85);
+	emit_byte_text(0x0f);
+	emit_byte_text(0x85);
 	emit_label(target);
 }
 
 void emit_jmp(Label target) {
-	emit_byte(0xe9);
+	emit_byte_text(0xe9);
 	emit_label(target);
 }
 
@@ -1217,9 +1266,15 @@ int short_circuits(const char* op) {
 void generate_code(AST_node* node) {
 	// simple approach: move terminals into rax
 	if (node->ast_type == AST_Type_TERMINAL) {
-		// TODO: typechecking
-		int64_t val = atoi(node->terminal.value.text);
-		emit_mov_reg_imm(Register_RAX, val);
+		Token_Type tt = node->terminal.value.type;
+		if (tt == Token_Type_INT_CONST) {
+			int64_t val = atoi(node->terminal.value.text);
+			emit_mov_reg_imm(Register_RAX, val);
+		} else if (tt == Token_Type_FLOAT_CONST) {
+			double val = atof(node->terminal.value.text);
+			// TODO: come back to this later.. i have to implement sections in
+			// elf for rodata.. :(
+		}
 		return;
 	} else if (AST_is_binary(node->ast_type)) {
 		// generate code for left into rax, push, generate code for right into rax,
@@ -1248,95 +1303,95 @@ void generate_code(AST_node* node) {
 			emit_xchg_reg_reg(Register_RCX, Register_RAX);
 		} else if (str_eql(op_text, "*") == 0) {
 			// imul rax, rcx
-			emit_byte(0x48); emit_byte(0x0f); emit_byte(0xaf); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x0f); emit_byte_text(0xaf); emit_byte_text(0xc1);
 		} else if (str_eql(op_text, "/") == 0) {
 			emit_xchg_reg_reg(Register_RCX, Register_RAX);
 			emit_cqo();
 			// idiv rcx
-			emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
+			emit_byte_text(0x48); emit_byte_text(0xf7); emit_byte_text(0xf9);
 		} else if (str_eql(op_text, "%") == 0) {
 			emit_xchg_reg_reg(Register_RCX, Register_RAX);
 			emit_cqo();
 			// idiv rcx
-			emit_byte(0x48); emit_byte(0xf7); emit_byte(0xf9);
+			emit_byte_text(0x48); emit_byte_text(0xf7); emit_byte_text(0xf9);
 			// mod is stored in rdx, move to rax
 			emit_xchg_reg_reg(Register_RAX, Register_RDX);
 		} else if (str_eql(op_text, "<<") == 0) {
 			emit_xchg_reg_reg(Register_RAX, Register_RCX);
 			// shl rax, cl
-			emit_byte(0x48); emit_byte(0xd3); emit_byte(0xe0);
+			emit_byte_text(0x48); emit_byte_text(0xd3); emit_byte_text(0xe0);
 		} else if (str_eql(op_text, ">>") == 0) {
 			emit_xchg_reg_reg(Register_RAX, Register_RCX);
 			// shr rax, cl
-			emit_byte(0x48); emit_byte(0xd3); emit_byte(0xe8);
+			emit_byte_text(0x48); emit_byte_text(0xd3); emit_byte_text(0xe8);
 		} else if (str_eql(op_text, "<") == 0) {
 			// cmp rax, rcx
-			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x39); emit_byte_text(0xc1);
 			// setl al
-			emit_byte(0x0f); emit_byte(0x9c); emit_byte(0xc0);
+			emit_byte_text(0x0f); emit_byte_text(0x9c); emit_byte_text(0xc0);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 		} else if (str_eql(op_text, "<=") == 0) {
 			// cmp rax, rcx
-			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x39); emit_byte_text(0xc1);
 			// setle al
-			emit_byte(0x0f); emit_byte(0x9e); emit_byte(0xc0);
+			emit_byte_text(0x0f); emit_byte_text(0x9e); emit_byte_text(0xc0);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 		} else if (str_eql(op_text, ">") == 0) {
 			// cmp rax, rcx
-			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x39); emit_byte_text(0xc1);
 			// setg al
-			emit_byte(0x0f); emit_byte(0x9f); emit_byte(0xc0);
+			emit_byte_text(0x0f); emit_byte_text(0x9f); emit_byte_text(0xc0);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 		} else if (str_eql(op_text, ">=") == 0) {
 			// cmp rax, rcx
-			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x39); emit_byte_text(0xc1);
 			// setge al
-			emit_byte(0x0f); emit_byte(0x9d); emit_byte(0xc0);
+			emit_byte_text(0x0f); emit_byte_text(0x9d); emit_byte_text(0xc0);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 		} else if (str_eql(op_text, "==") == 0) {
 			// cmp rax, rcx
-			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x39); emit_byte_text(0xc1);
 			// sete al
-			emit_byte(0x0f); emit_byte(0x94); emit_byte(0xc0);
+			emit_byte_text(0x0f); emit_byte_text(0x94); emit_byte_text(0xc0);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 		} else if (str_eql(op_text, "!=") == 0) {
 			// cmp rax, rcx
-			emit_byte(0x48); emit_byte(0x39); emit_byte(0xc1);
+			emit_byte_text(0x48); emit_byte_text(0x39); emit_byte_text(0xc1);
 			// setne al
-			emit_byte(0x0f); emit_byte(0x95); emit_byte(0xc0);
+			emit_byte_text(0x0f); emit_byte_text(0x95); emit_byte_text(0xc0);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 		} else if (str_eql(op_text, "&") == 0) {
 			// and rax, rcx
-			emit_byte(0x48); emit_byte(0x21); emit_byte(0xc8);
+			emit_byte_text(0x48); emit_byte_text(0x21); emit_byte_text(0xc8);
 		} else if (str_eql(op_text, "^") == 0) {
 			// xor rax, rcx
-			emit_byte(0x48); emit_byte(0x31); emit_byte(0xc8);
+			emit_byte_text(0x48); emit_byte_text(0x31); emit_byte_text(0xc8);
 		} else if (str_eql(op_text, "|") == 0) {
 			// or rax, rcx
-			emit_byte(0x48); emit_byte(0x09); emit_byte(0xc8);
+			emit_byte_text(0x48); emit_byte_text(0x09); emit_byte_text(0xc8);
 		} else if (str_eql(op_text, "&&") == 0) {
 			Label false_label = make_label();
 			Label end_label = make_label();
 
 			generate_code(left);
 			// test rax, rax
-			emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
+			emit_byte_text(0x48); emit_byte_text(0x85); emit_byte_text(0xc0);
 			emit_jz(false_label);
 
 			generate_code(right);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 			emit_jmp(end_label);
 
 			mark_label(&false_label);
 			// xor rax, rax
-			emit_byte(0x48); emit_byte(0x31); emit_byte(0xc0);
+			emit_byte_text(0x48); emit_byte_text(0x31); emit_byte_text(0xc0);
 
 			mark_label(&end_label);
 		} else if (str_eql(op_text, "||") == 0) {
@@ -1345,17 +1400,17 @@ void generate_code(AST_node* node) {
 
 			generate_code(left);
 			// test rax, rax
-			emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
+			emit_byte_text(0x48); emit_byte_text(0x85); emit_byte_text(0xc0);
 			emit_jnz(true_label);
 
 			generate_code(right);
 			// and al, 1
-			emit_byte(0x24); emit_byte(0x01);
+			emit_byte_text(0x24); emit_byte_text(0x01);
 			emit_jmp(end_label);
 
 			mark_label(&true_label);
 			// mov al, 1
-			emit_byte(0xb0); emit_byte(0x01);
+			emit_byte_text(0xb0); emit_byte_text(0x01);
 
 			mark_label(&end_label);
 		} else {
@@ -1373,7 +1428,7 @@ void generate_code(AST_node* node) {
 		
 		generate_code(condition);
 		// test rax, rax
-		emit_byte(0x48); emit_byte(0x85); emit_byte(0xc0);
+		emit_byte_text(0x48); emit_byte_text(0x85); emit_byte_text(0xc0);
 		emit_jz(false_label);
 
 		// true_label
@@ -1389,7 +1444,7 @@ void generate_code(AST_node* node) {
 
 void emit_exit() {
 	// mov rdi, rax (mov result to exit val)
-	emit_byte(0x48); emit_byte(0x87); emit_byte(0xc7);
+	emit_byte_text(0x48); emit_byte_text(0x87); emit_byte_text(0xc7);
 	// mov rax, 60
 	emit_mov_reg_imm(Register_RAX, 60);
 	// syscall
@@ -1415,14 +1470,16 @@ int main() {
 	AST_node* program = parse_conditional_expression();
 	print_ast(program, 0);
 
-	// prepare output
-	out_file = fopen("jcc.out", "wb");
-	write_elf_header();
-
 	// codegen
 	generate_code(program);
 	emit_exit();
 	resolve_labels();
+
+	// prepare output
+	out_file = fopen("jcc.out", "wb");
+	write_elf_header();
+	fwrite(rodata_buf, 1, rodata_byte, out_file);
+	fwrite(text_buf, 1, text_byte, out_file);
 
 	// cleanup and allow execution
 	fclose(out_file);
